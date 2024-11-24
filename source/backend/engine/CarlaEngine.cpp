@@ -1,19 +1,5 @@
-/*
- * Carla Plugin Host
- * Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /* TODO:
  * - complete processRack(): carefully add to input, sorted events
@@ -95,152 +81,176 @@ uint CarlaEngine::getDriverCount()
 
     uint count = 0;
 
+#ifdef HAVE_JACK
     if (jackbridge_is_ok())
-        count += 1;
+        ++count;
+#endif
 
-#ifndef BUILD_BRIDGE
-# ifdef USING_JUCE_AUDIO_DEVICES
-    count += getJuceApiCount();
-# else
+#ifdef USING_RTAUDIO
     count += getRtAudioApiCount();
-# endif
+#endif
+
+#ifdef HAVE_SDL
+    ++count;
 #endif
 
     return count;
 }
 
-const char* CarlaEngine::getDriverName(const uint index2)
+const char* CarlaEngine::getDriverName(const uint index)
 {
-    carla_debug("CarlaEngine::getDriverName(%i)", index2);
+    carla_debug("CarlaEngine::getDriverName(%u)", index);
     using namespace EngineInit;
 
-    uint index = index2;
+    uint index2 = index;
 
-    if (jackbridge_is_ok() && index-- == 0)
-        return "JACK";
-
-#ifndef BUILD_BRIDGE
-# ifdef USING_JUCE_AUDIO_DEVICES
-    if (const uint count = getJuceApiCount())
+#ifdef HAVE_JACK
+    if (jackbridge_is_ok())
     {
-        if (index < count)
-            return getJuceApiName(index);
-        index -= count;
+        if (index2 == 0)
+            return "JACK";
+        --index2;
     }
-# else
-    if (const uint count = getRtAudioApiCount())
-    {
-        if (index < count)
-            return getRtAudioApiName(index);
-    }
-# endif
 #endif
 
-    carla_stderr("CarlaEngine::getDriverName(%i) - invalid index", index2);
+#ifdef USING_RTAUDIO
+    if (const uint count = getRtAudioApiCount())
+    {
+        if (index2 < count)
+            return getRtAudioApiName(index2);
+        index2 -= count;
+    }
+#endif
+
+#ifdef HAVE_SDL
+    if (index2 == 0)
+        return "SDL";
+    --index2;
+#endif
+
+    carla_stderr("CarlaEngine::getDriverName(%u) - invalid index %u", index, index2);
     return nullptr;
 }
 
-const char* const* CarlaEngine::getDriverDeviceNames(const uint index2)
+const char* const* CarlaEngine::getDriverDeviceNames(const uint index)
 {
-    carla_debug("CarlaEngine::getDriverDeviceNames(%i)", index2);
+    carla_debug("CarlaEngine::getDriverDeviceNames(%u)", index);
     using namespace EngineInit;
 
-    uint index = index2;
+    uint index2 = index;
 
-    if (jackbridge_is_ok() && index-- == 0)
+#ifdef HAVE_JACK
+    if (jackbridge_is_ok())
     {
-        static const char* ret[3] = { "Auto-Connect ON", "Auto-Connect OFF", nullptr };
-        return ret;
+        if (index2 == 0)
+        {
+            static const char* ret[3] = { "Auto-Connect ON", "Auto-Connect OFF", nullptr };
+            return ret;
+        }
+        --index2;
     }
-
-#ifndef BUILD_BRIDGE
-# ifdef USING_JUCE_AUDIO_DEVICES
-    if (const uint count = getJuceApiCount())
-    {
-        if (index < count)
-            return getJuceApiDeviceNames(index);
-        index -= count;
-    }
-# else
-    if (const uint count = getRtAudioApiCount())
-    {
-        if (index < count)
-            return getRtAudioApiDeviceNames(index);
-    }
-# endif
 #endif
 
-    carla_stderr("CarlaEngine::getDriverDeviceNames(%i) - invalid index", index2);
+#ifdef USING_RTAUDIO
+    if (const uint count = getRtAudioApiCount())
+    {
+        if (index2 < count)
+            return getRtAudioApiDeviceNames(index2);
+        index2 -= count;
+    }
+#endif
+
+#ifdef HAVE_SDL
+    if (index2 == 0)
+        return getSDLDeviceNames();
+    --index2;
+#endif
+
+    carla_stderr("CarlaEngine::getDriverDeviceNames(%u) - invalid index %u", index, index2);
     return nullptr;
 }
 
-const EngineDriverDeviceInfo* CarlaEngine::getDriverDeviceInfo(const uint index2, const char* const deviceName)
+const EngineDriverDeviceInfo* CarlaEngine::getDriverDeviceInfo(const uint index, const char* const deviceName)
 {
-    carla_debug("CarlaEngine::getDriverDeviceInfo(%i, \"%s\")", index2, deviceName);
+    carla_debug("CarlaEngine::getDriverDeviceInfo(%u, \"%s\")", index, deviceName);
     using namespace EngineInit;
 
-    uint index = index2;
+    uint index2 = index;
 
-    if (jackbridge_is_ok() && index-- == 0)
+#ifdef HAVE_JACK
+    if (jackbridge_is_ok())
     {
+        if (index2 == 0)
+        {
+            static EngineDriverDeviceInfo devInfo;
+            devInfo.hints       = ENGINE_DRIVER_DEVICE_VARIABLE_BUFFER_SIZE;
+            devInfo.bufferSizes = nullptr;
+            devInfo.sampleRates = nullptr;
+            return &devInfo;
+        }
+        --index2;
+    }
+#endif
+
+#ifdef USING_RTAUDIO
+    if (const uint count = getRtAudioApiCount())
+    {
+        if (index2 < count)
+            return getRtAudioDeviceInfo(index2, deviceName);
+        index2 -= count;
+    }
+#endif
+
+#ifdef HAVE_SDL
+    if (index2 == 0)
+    {
+        static uint32_t sdlBufferSizes[] = { 512, 1024, 2048, 4096, 8192, 0 };
+        static double   sdlSampleRates[] = { 44100.0, 48000.0, 88200.0, 96000.0, 0.0 };
         static EngineDriverDeviceInfo devInfo;
-        devInfo.hints       = ENGINE_DRIVER_DEVICE_VARIABLE_BUFFER_SIZE;
-        devInfo.bufferSizes = nullptr;
-        devInfo.sampleRates = nullptr;
+        devInfo.hints       = 0x0;
+        devInfo.bufferSizes = sdlBufferSizes;
+        devInfo.sampleRates = sdlSampleRates;
         return &devInfo;
     }
-
-#ifndef BUILD_BRIDGE
-# ifdef USING_JUCE_AUDIO_DEVICES
-    if (const uint count = getJuceApiCount())
-    {
-        if (index < count)
-            return getJuceDeviceInfo(index, deviceName);
-        index -= count;
-    }
-# else
-    if (const uint count = getRtAudioApiCount())
-    {
-        if (index < count)
-            return getRtAudioDeviceInfo(index, deviceName);
-    }
-# endif
+    --index2;
 #endif
 
-    carla_stderr("CarlaEngine::getDriverDeviceNames(%i, \"%s\") - invalid index", index2, deviceName);
+    carla_stderr("CarlaEngine::getDriverDeviceInfo(%u, \"%s\") - invalid index %u", index, deviceName, index2);
     return nullptr;
 }
 
-bool CarlaEngine::showDriverDeviceControlPanel(const uint index2, const char* const deviceName)
+bool CarlaEngine::showDriverDeviceControlPanel(const uint index, const char* const deviceName)
 {
-    carla_debug("CarlaEngine::showDriverDeviceControlPanel(%i, \"%s\")", index2, deviceName);
+    carla_debug("CarlaEngine::showDriverDeviceControlPanel(%u, \"%s\")", index, deviceName);
     using namespace EngineInit;
 
-    uint index = index2;
+    uint index2 = index;
 
-    if (jackbridge_is_ok() && index-- == 0)
+#ifdef HAVE_JACK
+    if (jackbridge_is_ok())
     {
-        return false;
-    }
-
-#ifndef BUILD_BRIDGE
-# ifdef USING_JUCE_AUDIO_DEVICES
-    if (const uint count = getJuceApiCount())
-    {
-        if (index < count)
-            return showJuceDeviceControlPanel(index, deviceName);
-        index -= count;
-    }
-# else
-    if (const uint count = getRtAudioApiCount())
-    {
-        if (index < count)
+        if (index2 == 0)
             return false;
+        --index2;
     }
-# endif
 #endif
 
-    carla_stderr("CarlaEngine::showDriverDeviceControlPanel(%i, \"%s\") - invalid index", index2, deviceName);
+#ifdef USING_RTAUDIO
+    if (const uint count = getRtAudioApiCount())
+    {
+        if (index2 < count)
+            return false;
+        index2 -= count;
+    }
+#endif
+
+#ifdef HAVE_SDL
+    if (index2 == 0)
+        return false;
+    --index2;
+#endif
+
+    carla_stderr("CarlaEngine::showDriverDeviceControlPanel(%u, \"%s\") - invalid index %u", index, deviceName, index2);
     return false;
 }
 
@@ -250,38 +260,17 @@ CarlaEngine* CarlaEngine::newDriverByName(const char* const driverName)
     carla_debug("CarlaEngine::newDriverByName(\"%s\")", driverName);
     using namespace EngineInit;
 
+#ifdef HAVE_JACK
     if (std::strcmp(driverName, "JACK") == 0)
         return newJack();
+#endif
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+#if !(defined(BUILD_BRIDGE_ALTERNATIVE_ARCH) || defined(CARLA_OS_WASM) || defined(CARLA_PLUGIN_BUILD) || defined(STATIC_PLUGIN_TARGET))
     if (std::strcmp(driverName, "Dummy") == 0)
         return newDummy();
 #endif
 
-#ifndef BUILD_BRIDGE
-# ifdef USING_JUCE_AUDIO_DEVICES
-    // -------------------------------------------------------------------
-    // linux
-
-    if (std::strcmp(driverName, "ALSA") == 0)
-        return newJuce(AUDIO_API_ALSA);
-
-    // -------------------------------------------------------------------
-    // macos
-
-    if (std::strcmp(driverName, "CoreAudio") == 0)
-        return newJuce(AUDIO_API_COREAUDIO);
-
-    // -------------------------------------------------------------------
-    // windows
-
-    if (std::strcmp(driverName, "ASIO") == 0)
-        return newJuce(AUDIO_API_ASIO);
-    if (std::strcmp(driverName, "DirectSound") == 0)
-        return newJuce(AUDIO_API_DIRECTSOUND);
-    if (std::strcmp(driverName, "WASAPI") == 0 || std::strcmp(driverName, "Windows Audio") == 0)
-        return newJuce(AUDIO_API_WASAPI);
-# else
+#ifdef USING_RTAUDIO
     // -------------------------------------------------------------------
     // common
 
@@ -313,7 +302,11 @@ CarlaEngine* CarlaEngine::newDriverByName(const char* const driverName)
         return newRtAudio(AUDIO_API_DIRECTSOUND);
     if (std::strcmp(driverName, "WASAPI") == 0)
         return newRtAudio(AUDIO_API_WASAPI);
-# endif
+#endif
+
+#ifdef HAVE_SDL
+    if (std::strcmp(driverName, "SDL") == 0)
+        return newSDL();
 #endif
 
     carla_stderr("CarlaEngine::newDriverByName(\"%s\") - invalid driver name", driverName);
@@ -374,6 +367,7 @@ void CarlaEngine::idle() noexcept
     CARLA_SAFE_ASSERT_RETURN(getType() != kEngineTypePlugin,);
 
     const bool engineNotRunning = !isRunning();
+    const bool engineHasIdleOnMainThread = hasIdleOnMainThread();
 
     for (uint i=0; i < pData->curPluginCount; ++i)
     {
@@ -396,11 +390,21 @@ void CarlaEngine::idle() noexcept
                         } CARLA_SAFE_EXCEPTION_CONTINUE("Plugin uiIdle");
                     }
                 }
-                else if ((hints & PLUGIN_HAS_CUSTOM_UI) != 0 && (hints & PLUGIN_NEEDS_UI_MAIN_THREAD) != 0)
+                else
                 {
-                    try {
-                        plugin->uiIdle();
-                    } CARLA_SAFE_EXCEPTION_CONTINUE("Plugin uiIdle");
+                    if (engineHasIdleOnMainThread && (hints & PLUGIN_NEEDS_MAIN_THREAD_IDLE) != 0)
+                    {
+                        try {
+                            plugin->idle();
+                        } CARLA_SAFE_EXCEPTION_CONTINUE("Plugin idle");
+                    }
+
+                    if ((hints & PLUGIN_HAS_CUSTOM_UI) != 0 && (hints & PLUGIN_NEEDS_UI_MAIN_THREAD) != 0)
+                    {
+                        try {
+                            plugin->uiIdle();
+                        } CARLA_SAFE_EXCEPTION_CONTINUE("Plugin uiIdle");
+                    }
                 }
             }
         }
@@ -492,7 +496,7 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
 
     uint id;
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+   #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     CarlaPluginPtr oldPlugin;
 
     if (pData->nextPluginId < pData->curPluginCount)
@@ -505,7 +509,7 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
         CARLA_SAFE_ASSERT_RETURN_ERR(oldPlugin.get() != nullptr, "Invalid replace plugin Id");
     }
     else
-#endif
+   #endif
     {
         id = pData->curPluginCount;
 
@@ -515,9 +519,9 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
             return false;
         }
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+       #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
         CARLA_SAFE_ASSERT_RETURN_ERR(pData->plugins[id].plugin.get() == nullptr, "Invalid engine internal data");
-#endif
+       #endif
     }
 
     CarlaPlugin::Initializer initializer = {
@@ -535,13 +539,13 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
 
     if (bridgeBinary.isNotEmpty())
     {
-#ifndef CARLA_OS_WIN
+       #ifndef CARLA_OS_WIN
         if (btype == BINARY_NATIVE)
         {
             bridgeBinary += CARLA_OS_SEP_STR "carla-bridge-native";
         }
         else
-#endif
+       #endif
         {
             switch (btype)
             {
@@ -552,18 +556,18 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
                 bridgeBinary += CARLA_OS_SEP_STR "carla-bridge-posix64";
                 break;
             case BINARY_WIN32:
-#if defined(CARLA_OS_WIN) && !defined(CARLA_OS_64BIT)
+               #if defined(CARLA_OS_WIN) && !defined(CARLA_OS_64BIT)
                 bridgeBinary += CARLA_OS_SEP_STR "carla-bridge-native.exe";
-#else
+               #else
                 bridgeBinary += CARLA_OS_SEP_STR "carla-bridge-win32.exe";
-#endif
+               #endif
                 break;
             case BINARY_WIN64:
-#if defined(CARLA_OS_WIN) && defined(CARLA_OS_64BIT)
+               #if defined(CARLA_OS_WIN) && defined(CARLA_OS_64BIT)
                 bridgeBinary += CARLA_OS_SEP_STR "carla-bridge-native.exe";
-#else
+               #else
                 bridgeBinary += CARLA_OS_SEP_STR "carla-bridge-win64.exe";
-#endif
+               #endif
                 break;
             default:
                 bridgeBinary.clear();
@@ -580,22 +584,23 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
                            && ptype != PLUGIN_GIG
                            && ptype != PLUGIN_SF2
                            && ptype != PLUGIN_SFZ
+                           && ptype != PLUGIN_JSFX
                            && ptype != PLUGIN_JACK;
 
     // Prefer bridges for some specific plugins
     bool preferBridges = pData->options.preferPluginBridges;
     const char* needsArchBridge = nullptr;
 
-#ifdef CARLA_OS_MAC
+   #ifdef CARLA_OS_MAC
     // Plugin might be in quarentine due to Apple stupid notarization rules, let's remove that if possible
     if (canBeBridged && ptype != PLUGIN_LV2 && ptype != PLUGIN_AU)
         removeFileFromQuarantine(filename);
-#endif
+   #endif
 
-#ifndef BUILD_BRIDGE
+   #ifndef BUILD_BRIDGE
     if (canBeBridged && ! preferBridges)
     {
-# if 0
+        /*
         if (ptype == PLUGIN_LV2 && label != nullptr)
         {
             if (std::strncmp(label, "http://calf.sourceforge.net/plugins/", 36) == 0 ||
@@ -605,8 +610,8 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
                 preferBridges = true;
             }
         }
-# endif
-# ifdef ADAPT_FOR_APPLE_SILLICON
+        */
+       #ifdef ADAPT_FOR_APPLE_SILLICON
         // see if this binary needs bridging
         if (ptype == PLUGIN_VST2 || ptype == PLUGIN_VST3)
         {
@@ -616,13 +621,13 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
                 if (const char* const output = magic.getFileDescription(vst2Binary))
                 {
                     carla_stdout("VST binary magic output is '%s'", output);
-#  ifdef __aarch64__
+                   #ifdef __aarch64__
                     if (std::strstr(output, "arm64") == nullptr && std::strstr(output, "x86_64") != nullptr)
                         needsArchBridge = "x86_64";
-#  else
+                   #else
                     if (std::strstr(output, "x86_64") == nullptr && std::strstr(output, "arm64") != nullptr)
                         needsArchBridge = "arm64";
-#  endif
+                   #endif
                 }
                 else
                 {
@@ -634,10 +639,21 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
                 carla_stdout("Search for binary in VST bundle failed");
             }
         }
-# endif
+       #endif // ADAPT_FOR_APPLE_SILLICON
     }
-#endif // ! BUILD_BRIDGE
+   #endif // ! BUILD_BRIDGE
 
+   #if defined(CARLA_PLUGIN_ONLY_BRIDGE)
+    if (bridgeBinary.isNotEmpty())
+    {
+        plugin = CarlaPlugin::newBridge(initializer, btype, ptype, needsArchBridge, bridgeBinary);
+    }
+    else
+    {
+        setLastError("Cannot load plugin, the required plugin bridge is not available");
+        return false;
+    }
+   #elif !defined(CARLA_OS_WASM)
     if (canBeBridged && (needsArchBridge || btype != BINARY_NATIVE || (preferBridges && bridgeBinary.isNotEmpty())))
     {
         if (bridgeBinary.isNotEmpty())
@@ -651,10 +667,12 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
         }
     }
     else
+   #endif
+   #ifndef CARLA_PLUGIN_ONLY_BRIDGE
     {
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+       #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
         bool use16Outs;
-#endif
+       #endif
         setLastError("Invalid or unsupported plugin type");
 
         // Some stupid plugins mess up with global signals, err!!
@@ -663,6 +681,7 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
         switch (ptype)
         {
         case PLUGIN_NONE:
+        case PLUGIN_TYPE_COUNT:
             break;
 
         case PLUGIN_LADSPA:
@@ -685,11 +704,15 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
             plugin = CarlaPlugin::newVST3(initializer);
             break;
 
+        case PLUGIN_CLAP:
+            plugin = CarlaPlugin::newCLAP(initializer);
+            break;
+
         case PLUGIN_AU:
             plugin = CarlaPlugin::newAU(initializer);
             break;
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+       #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
         case PLUGIN_INTERNAL:
             plugin = CarlaPlugin::newNative(initializer);
             break;
@@ -702,7 +725,7 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
             break;
 
         case PLUGIN_SFZ:
-# ifdef SFZ_FILES_USING_SFIZZ
+           #ifdef SFZ_FILES_USING_SFIZZ
             {
                 CarlaPlugin::Initializer sfizzInitializer = {
                     this,
@@ -716,33 +739,43 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
 
                 plugin = CarlaPlugin::newLV2(sfizzInitializer);
             }
-# else
+           #else
             plugin = CarlaPlugin::newSFZero(initializer);
-# endif
+           #endif
+            break;
+
+        case PLUGIN_JSFX:
+            plugin = CarlaPlugin::newJSFX(initializer);
             break;
 
         case PLUGIN_JACK:
+           #ifdef HAVE_JACK
             plugin = CarlaPlugin::newJackApp(initializer);
+           #else
+            setLastError("JACK plugin target is not available");
+           #endif
             break;
-#else
+       #else
         case PLUGIN_INTERNAL:
         case PLUGIN_DLS:
         case PLUGIN_GIG:
         case PLUGIN_SF2:
         case PLUGIN_SFZ:
         case PLUGIN_JACK:
+        case PLUGIN_JSFX:
             setLastError("Plugin bridges cannot handle this binary");
             break;
-#endif
+       #endif // BUILD_BRIDGE_ALTERNATIVE_ARCH
         }
     }
+   #endif // CARLA_PLUGIN_ONLY_BRIDGE
 
     if (plugin.get() == nullptr)
         return false;
 
     plugin->reload();
 
-#ifdef SFZ_FILES_USING_SFIZZ
+   #ifdef SFZ_FILES_USING_SFIZZ
     if (ptype == PLUGIN_SFZ && plugin->getType() == PLUGIN_LV2)
     {
         plugin->setCustomData(LV2_ATOM__Path,
@@ -752,7 +785,7 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
 
         plugin->restoreLV2State(true);
     }
-#endif
+   #endif
 
     bool canRun = true;
 
@@ -774,12 +807,12 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
     pluginData.plugin = plugin;
     carla_zeroFloats(pluginData.peaks, 4);
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+   #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     if (oldPlugin.get() != nullptr)
     {
         CARLA_SAFE_ASSERT(! pData->loadingProject);
 
-        const ScopedThreadStopper sts(this);
+        const ScopedRunnerStopper srs(this);
 
         if (pData->options.processMode == ENGINE_PROCESS_MODE_PATCHBAY)
             pData->graph.replacePlugin(oldPlugin, plugin);
@@ -789,7 +822,10 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
         const float oldVolume = oldPlugin->getInternalParameterValue(PARAMETER_VOLUME);
 
         oldPlugin->prepareForDeletion();
-        pData->pluginsToDelete.push_back(oldPlugin);
+        {
+            const CarlaMutexLocker cml(pData->pluginsToDeleteMutex);
+            pData->pluginsToDelete.push_back(oldPlugin);
+        }
 
         if (plugin->getHints() & PLUGIN_CAN_DRYWET)
             plugin->setDryWet(oldDryWet, true, true);
@@ -803,23 +839,28 @@ bool CarlaEngine::addPlugin(const BinaryType btype,
         callback(true, true, ENGINE_CALLBACK_RELOAD_ALL, id, 0, 0, 0, 0.0f, nullptr);
     }
     else if (! pData->loadingProject)
-#endif
+   #endif
     {
         plugin->setEnabled(true);
 
         ++pData->curPluginCount;
-        callback(true, true, ENGINE_CALLBACK_PLUGIN_ADDED, id, 0, 0, 0, 0.0f, plugin->getName());
+        callback(true, true, ENGINE_CALLBACK_PLUGIN_ADDED, id, plugin->getType(), 0, 0, 0.0f, plugin->getName());
 
         if (getType() != kEngineTypeBridge)
             plugin->setActive(true, true, true);
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+       #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
         if (pData->options.processMode == ENGINE_PROCESS_MODE_PATCHBAY)
             pData->graph.addPlugin(plugin);
-#endif
+       #endif
     }
 
     return true;
+
+   #if defined(BUILD_BRIDGE_ALTERNATIVE_ARCH) || defined(CARLA_PLUGIN_ONLY_BRIDGE)
+    // unused
+    (void)extra;
+   #endif
 }
 
 bool CarlaEngine::addPlugin(const PluginType ptype,
@@ -850,7 +891,7 @@ bool CarlaEngine::removePlugin(const uint id)
     CARLA_SAFE_ASSERT_RETURN_ERR(plugin.get() != nullptr, "Could not find plugin to remove");
     CARLA_SAFE_ASSERT_RETURN_ERR(plugin->getId() == id, "Invalid engine internal data");
 
-    const ScopedThreadStopper sts(this);
+    const ScopedRunnerStopper srs(this);
 
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     if (pData->options.processMode == ENGINE_PROCESS_MODE_PATCHBAY)
@@ -868,12 +909,15 @@ bool CarlaEngine::removePlugin(const uint id)
     */
 #else
     pData->curPluginCount = 0;
-    pData->plugins[0].plugin = nullptr;
+    pData->plugins[0].plugin.reset();
     carla_zeroStruct(pData->plugins[0].peaks);
 #endif
 
     plugin->prepareForDeletion();
-    pData->pluginsToDelete.push_back(plugin);
+    {
+        const CarlaMutexLocker cml(pData->pluginsToDeleteMutex);
+        pData->pluginsToDelete.push_back(plugin);
+    }
 
     callback(true, true, ENGINE_CALLBACK_PLUGIN_REMOVED, id, 0, 0, 0, 0.0f, nullptr);
     return true;
@@ -892,13 +936,13 @@ bool CarlaEngine::removeAllPlugins()
     if (pData->curPluginCount == 0)
         return true;
 
-    const ScopedThreadStopper sts(this);
+    const ScopedRunnerStopper srs(this);
 
     const uint curPluginCount = pData->curPluginCount;
 
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     if (pData->options.processMode == ENGINE_PROCESS_MODE_PATCHBAY)
-        pData->graph.removeAllPlugins();
+        pData->graph.removeAllPlugins(pData->aboutToClose);
 #endif
 
     const ScopedActionLock sal(this, kEnginePostActionZeroCount, 0, 0);
@@ -911,7 +955,10 @@ bool CarlaEngine::removeAllPlugins()
         EnginePluginData& pluginData(pData->plugins[id]);
 
         pluginData.plugin->prepareForDeletion();
-        pData->pluginsToDelete.push_back(pluginData.plugin);
+        {
+            const CarlaMutexLocker cml(pData->pluginsToDeleteMutex);
+            pData->pluginsToDelete.push_back(pluginData.plugin);
+        }
 
         pluginData.plugin.reset();
         carla_zeroStruct(pluginData.peaks);
@@ -1037,7 +1084,7 @@ bool CarlaEngine::switchPlugins(const uint idA, const uint idB) noexcept
     CARLA_SAFE_ASSERT_RETURN_ERR(pluginA->getId() == idA, "Invalid engine internal data");
     CARLA_SAFE_ASSERT_RETURN_ERR(pluginB->getId() == idB, "Invalid engine internal data");
 
-    const ScopedThreadStopper sts(this);
+    const ScopedRunnerStopper srs(this);
 
     if (pData->options.processMode == ENGINE_PROCESS_MODE_PATCHBAY)
         pData->graph.switchPlugins(pluginA, pluginB);
@@ -1173,8 +1220,7 @@ bool CarlaEngine::loadFile(const char* const filename)
     CARLA_SAFE_ASSERT_RETURN_ERR(filename != nullptr && filename[0] != '\0', "Invalid filename");
     carla_debug("CarlaEngine::loadFile(\"%s\")", filename);
 
-    const String jfilename = String(CharPointer_UTF8(filename));
-    File file(jfilename);
+    File file(filename);
     CARLA_SAFE_ASSERT_RETURN_ERR(file.exists(), "Requested file does not exist or is not a readable");
 
     CarlaString baseName(file.getFileNameWithoutExtension().toRawUTF8());
@@ -1201,6 +1247,9 @@ bool CarlaEngine::loadFile(const char* const filename)
 
     if (extension == "sfz")
         return addPlugin(PLUGIN_SFZ, filename, baseName, baseName, 0, nullptr);
+
+    if (extension == "jsfx")
+        return addPlugin(PLUGIN_JSFX, filename, baseName, baseName, 0, nullptr);
 
     // -------------------------------------------------------------------
 
@@ -1314,6 +1363,9 @@ bool CarlaEngine::loadFile(const char* const filename)
     // Direct plugin binaries
 
 #ifdef CARLA_OS_MAC
+    if (extension == "component")
+        return addPlugin(PLUGIN_AU, filename, nullptr, nullptr, 0, nullptr);
+
     if (extension == "vst")
         return addPlugin(PLUGIN_VST2, filename, nullptr, nullptr, 0, nullptr);
 #else
@@ -1321,10 +1373,11 @@ bool CarlaEngine::loadFile(const char* const filename)
         return addPlugin(getBinaryTypeFromFile(filename), PLUGIN_VST2, filename, nullptr, nullptr, 0, nullptr);
 #endif
 
-#ifdef USING_JUCE
     if (extension == "vst3")
         return addPlugin(getBinaryTypeFromFile(filename), PLUGIN_VST3, filename, nullptr, nullptr, 0, nullptr);
-#endif
+
+    if (extension == "clap")
+        return addPlugin(getBinaryTypeFromFile(filename), PLUGIN_CLAP, filename, nullptr, nullptr, 0, nullptr);
 
     // -------------------------------------------------------------------
 
@@ -1338,8 +1391,7 @@ bool CarlaEngine::loadProject(const char* const filename, const bool setAsCurren
     CARLA_SAFE_ASSERT_RETURN_ERR(filename != nullptr && filename[0] != '\0', "Invalid filename");
     carla_debug("CarlaEngine::loadProject(\"%s\")", filename);
 
-    const String jfilename = String(CharPointer_UTF8(filename));
-    const File file(jfilename);
+    const File file(filename);
     CARLA_SAFE_ASSERT_RETURN_ERR(file.existsAsFile(), "Requested file does not exist or is not a readable file");
 
     if (setAsCurrentProject)
@@ -1400,8 +1452,7 @@ bool CarlaEngine::saveProject(const char* const filename, const bool setAsCurren
     MemoryOutputStream out;
     saveProjectInternal(out);
 
-    const String jfilename = String(CharPointer_UTF8(filename));
-    File file(jfilename);
+    File file(filename);
 
     if (file.replaceWithData(out.getData(), out.getDataSize()))
         return true;
@@ -1950,7 +2001,7 @@ void CarlaEngine::setOption(const EngineOption option, const int value, const ch
         break;
     case ENGINE_OPTION_PLUGIN_PATH:
         CARLA_SAFE_ASSERT_RETURN(value > PLUGIN_NONE,);
-        CARLA_SAFE_ASSERT_RETURN(value <= PLUGIN_SFZ,);
+        CARLA_SAFE_ASSERT_RETURN(value <= PLUGIN_TYPE_COUNT,);
 
         switch (value)
         {
@@ -2009,6 +2060,22 @@ void CarlaEngine::setOption(const EngineOption option, const int value, const ch
                 pData->options.pathSFZ = carla_strdup_safe(valueStr);
             else
                 pData->options.pathSFZ = nullptr;
+            break;
+        case PLUGIN_JSFX:
+            if (pData->options.pathJSFX != nullptr)
+                delete[] pData->options.pathJSFX;
+            if (valueStr != nullptr)
+                pData->options.pathJSFX = carla_strdup_safe(valueStr);
+            else
+                pData->options.pathJSFX = nullptr;
+            break;
+        case PLUGIN_CLAP:
+            if (pData->options.pathCLAP != nullptr)
+                delete[] pData->options.pathCLAP;
+            if (valueStr != nullptr)
+                pData->options.pathCLAP = carla_strdup_safe(valueStr);
+            else
+                pData->options.pathCLAP = nullptr;
             break;
         default:
             return carla_stderr("CarlaEngine::setOption(%i:%s, %i, \"%s\") - Invalid plugin type",
@@ -2312,6 +2379,8 @@ void CarlaEngine::saveProjectInternal(water::MemoryOutputStream& outStream) cons
             outSettings << "  <VST3_PATH>"   << xmlSafeString(options.pathVST3,   true) << "</VST3_PATH>\n";
             outSettings << "  <SF2_PATH>"    << xmlSafeString(options.pathSF2,    true) << "</SF2_PATH>\n";
             outSettings << "  <SFZ_PATH>"    << xmlSafeString(options.pathSFZ,    true) << "</SFZ_PATH>\n";
+            outSettings << "  <JSFX_PATH>"   << xmlSafeString(options.pathJSFX,   true) << "</JSFX_PATH>\n";
+            outSettings << "  <CLAP_PATH>"   << xmlSafeString(options.pathCLAP,   true) << "</CLAP_PATH>\n";
         }
 
         outSettings << " </EngineSettings>\n";
@@ -2532,49 +2601,52 @@ static String findBinaryInCustomPath(const char* const searchPath, const char* c
         jbinary = jbinary.substring(2).replaceCharacter('\\', '/');
 #endif
 
-    String filename = File(jbinary).getFileName();
+    String filename = File(jbinary.toRawUTF8()).getFileName();
 
     int searchFlags = File::findFiles|File::ignoreHiddenFiles;
+
+    if (filename.endsWithIgnoreCase(".vst3"))
+        searchFlags |= File::findDirectories;
 #ifdef CARLA_OS_MAC
-    if (filename.endsWithIgnoreCase(".vst") || filename.endsWithIgnoreCase(".vst3"))
+    else if (filename.endsWithIgnoreCase(".vst"))
         searchFlags |= File::findDirectories;
 #endif
 
-    Array<File> results;
+    std::vector<File> results;
     for (const String *it=searchPaths.begin(), *end=searchPaths.end(); it != end; ++it)
     {
-        const File path(*it);
+        const File path(it->toRawUTF8());
 
         results.clear();
-        path.findChildFiles(results, searchFlags, true, filename);
+        path.findChildFiles(results, searchFlags, true, filename.toRawUTF8());
 
-        if (results.size() > 0)
-            return results.getFirst().getFullPathName();
+        if (!results.empty())
+            return results.front().getFullPathName();
     }
 
     // try changing extension
 #if defined(CARLA_OS_MAC)
     if (filename.endsWithIgnoreCase(".dll") || filename.endsWithIgnoreCase(".so"))
-        filename = File(jbinary).getFileNameWithoutExtension() + ".dylib";
+        filename = File(jbinary.toRawUTF8()).getFileNameWithoutExtension() + ".dylib";
 #elif defined(CARLA_OS_WIN)
     if (filename.endsWithIgnoreCase(".dylib") || filename.endsWithIgnoreCase(".so"))
-        filename = File(jbinary).getFileNameWithoutExtension() + ".dll";
+        filename = File(jbinary.toRawUTF8()).getFileNameWithoutExtension() + ".dll";
 #else
     if (filename.endsWithIgnoreCase(".dll") || filename.endsWithIgnoreCase(".dylib"))
-        filename = File(jbinary).getFileNameWithoutExtension() + ".so";
+        filename = File(jbinary.toRawUTF8()).getFileNameWithoutExtension() + ".so";
 #endif
     else
         return String();
 
     for (const String *it=searchPaths.begin(), *end=searchPaths.end(); it != end; ++it)
     {
-        const File path(*it);
+        const File path(it->toRawUTF8());
 
         results.clear();
-        path.findChildFiles(results, searchFlags, true, filename);
+        path.findChildFiles(results, searchFlags, true, filename.toRawUTF8());
 
-        if (results.size() > 0)
-            return results.getFirst().getFullPathName();
+        if (!results.empty())
+            return results.front().getFullPathName();
     }
 
     return String();
@@ -2725,6 +2797,18 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
                     value    = PLUGIN_SFZ;
                     valueStr = text.toRawUTF8();
                 }
+                else if (tag == "JSFX_PATH")
+                {
+                    option   = ENGINE_OPTION_PLUGIN_PATH;
+                    value    = PLUGIN_JSFX;
+                    valueStr = text.toRawUTF8();
+                }
+                else if (tag == "CLAP_PATH")
+                {
+                    option   = ENGINE_OPTION_PLUGIN_PATH;
+                    value    = PLUGIN_CLAP;
+                    valueStr = text.toRawUTF8();
+                }
             }
 
             if (option == -1)
@@ -2737,7 +2821,7 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
                     continue;
                 if (tag == "VST3_PATH" || tag == "AU_PATH")
                     continue;
-                if (tag == "SF2_PATH" || tag == "SFZ_PATH")
+                if (tag == "SF2_PATH" || tag == "SFZ_PATH" || tag == "JSFX_PATH" || tag == "CLAP_PATH")
                     continue;
 
                 // hmm something is wrong..
@@ -2802,7 +2886,7 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
 
             CARLA_SAFE_ASSERT_CONTINUE(stateSave.type != nullptr);
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+          #if !(defined(BUILD_BRIDGE_ALTERNATIVE_ARCH) || defined(CARLA_PLUGIN_ONLY_BRIDGE))
             // compatibility code to load projects with GIG files
             // FIXME Remove on 2.1 release
             if (std::strcmp(stateSave.type, "GIG") == 0)
@@ -2843,7 +2927,9 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
                         plugin->setEnabled(true);
 
                         ++pData->curPluginCount;
-                        callback(true, true, ENGINE_CALLBACK_PLUGIN_ADDED, pluginId, 0, 0, 0, 0.0f, plugin->getName());
+                        callback(true, true, ENGINE_CALLBACK_PLUGIN_ADDED, pluginId, plugin->getType(),
+                                 0, 0, 0.0f,
+                                 plugin->getName());
 
                         if (isPatchbay)
                             pData->graph.addPlugin(plugin);
@@ -2861,7 +2947,7 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
                 callback(true, true, ENGINE_CALLBACK_IDLE, 0, 0, 0, 0, 0.0f, nullptr);
                 continue;
             }
-# ifdef SFZ_FILES_USING_SFIZZ
+           #ifdef SFZ_FILES_USING_SFIZZ
             if (std::strcmp(stateSave.type, "SFZ") == 0)
             {
                 if (addPlugin(PLUGIN_LV2, "", stateSave.name, "http://sfztools.github.io/sfizz", 0, nullptr))
@@ -2896,7 +2982,9 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
                         plugin->setEnabled(true);
 
                         ++pData->curPluginCount;
-                        callback(true, true, ENGINE_CALLBACK_PLUGIN_ADDED, pluginId, 0, 0, 0, 0.0f, plugin->getName());
+                        callback(true, true, ENGINE_CALLBACK_PLUGIN_ADDED, pluginId, plugin->getType(),
+                                 0, 0, 0.0f,
+                                 plugin->getName());
 
                         if (isPatchbay)
                             pData->graph.addPlugin(plugin);
@@ -2914,13 +3002,13 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
                 callback(true, true, ENGINE_CALLBACK_IDLE, 0, 0, 0, 0, 0.0f, nullptr);
                 continue;
             }
-# endif
-#endif
+           #endif
+          #endif
 
             const void* extraStuff    = nullptr;
             static const char kTrue[] = "true";
 
-            const PluginType ptype(getPluginTypeFromString(stateSave.type));
+            const PluginType ptype = getPluginTypeFromString(stateSave.type);
 
             switch (ptype)
             {
@@ -2933,6 +3021,8 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
             case PLUGIN_VST2:
             case PLUGIN_VST3:
             case PLUGIN_SFZ:
+            case PLUGIN_JSFX:
+            case PLUGIN_CLAP:
                 if (stateSave.binary != nullptr && stateSave.binary[0] != '\0' &&
                     ! (File::isAbsolutePath(stateSave.binary) && File(stateSave.binary).exists()))
                 {
@@ -2946,6 +3036,8 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
                     case PLUGIN_VST3:   searchPath = pData->options.pathVST3;   break;
                     case PLUGIN_SF2:    searchPath = pData->options.pathSF2;    break;
                     case PLUGIN_SFZ:    searchPath = pData->options.pathSFZ;    break;
+                    case PLUGIN_JSFX:   searchPath = pData->options.pathJSFX;   break;
+                    case PLUGIN_CLAP:   searchPath = pData->options.pathCLAP;   break;
                     default:            searchPath = nullptr;                   break;
                     }
 
@@ -2966,6 +3058,8 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
                             case PLUGIN_VST3:   searchPath = std::getenv("VST3_PATH");   break;
                             case PLUGIN_SF2:    searchPath = std::getenv("SF2_PATH");    break;
                             case PLUGIN_SFZ:    searchPath = std::getenv("SFZ_PATH");    break;
+                            case PLUGIN_JSFX:   searchPath = std::getenv("JSFX_PATH");   break;
+                            case PLUGIN_CLAP:   searchPath = std::getenv("CLAP_PATH");   break;
                             default:            searchPath = nullptr;                    break;
                             }
 
@@ -3001,6 +3095,8 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
             case PLUGIN_LV2:
             case PLUGIN_VST2:
             case PLUGIN_VST3:
+            case PLUGIN_CLAP:
+            case PLUGIN_AU:
                 btype = getBinaryTypeFromFile(stateSave.binary);
                 break;
             default:
@@ -3041,7 +3137,9 @@ bool CarlaEngine::loadProjectInternal(water::XmlDocument& xmlDoc, const bool alw
                     plugin->setEnabled(true);
 
                     ++pData->curPluginCount;
-                    callback(true, true, ENGINE_CALLBACK_PLUGIN_ADDED, pluginId, 0, 0, 0, 0.0f, plugin->getName());
+                    callback(true, true, ENGINE_CALLBACK_PLUGIN_ADDED, pluginId, plugin->getType(),
+                             0, 0, 0.0f,
+                             plugin->getName());
 
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
                     if (isPatchbay)

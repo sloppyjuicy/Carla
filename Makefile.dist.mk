@@ -10,7 +10,7 @@
 
 PYTHON = $(EXE_WRAPPER) $(shell which python3$(APP_EXT))
 
-ifeq ($(WIN32),true)
+ifeq ($(WINDOWS),true)
 QT5_DLL_EXT = .dll
 QT5_DLL_V = 5
 endif
@@ -19,7 +19,9 @@ ifeq ($(MACOS),true)
 QT5_LIB_PREFIX = lib
 endif
 
+ifeq ($(HAVE_QT5PKG),true)
 QT5_PREFIX = $(shell pkg-config --variable=prefix Qt5OpenGLExtensions)
+endif
 
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -46,12 +48,12 @@ _QT5_PLUGINS = \
 
 ifeq ($(MACOS),true)
 _QT5_PLUGINS += platforms/$(QT5_LIB_PREFIX)qcocoa$(LIB_EXT)
-else ifeq ($(WIN32),true)
+else ifeq ($(WINDOWS),true)
 _QT5_PLUGINS += platforms/$(QT5_LIB_PREFIX)qwindows$(LIB_EXT)
 endif
 
 # NOTE this has to be hardcoded for now. oh well
-ifeq ($(WIN32),true)
+ifeq ($(WINDOWS),true)
 _PYTHON_FILES = \
 	libpython3.8.dll
 endif
@@ -62,15 +64,18 @@ _THEME_FILES = \
 
 _CARLA_HOST_FILES = \
 	carla-bridge-lv2$(LIB_EXT) \
+	carla-bridge-lv2-gtk2$(APP_EXT) \
+	carla-bridge-lv2-gtk3$(APP_EXT) \
 	carla-bridge-native$(APP_EXT) \
 	carla-discovery-native$(APP_EXT) \
+	libcarla_frontend$(LIB_EXT) \
 	libcarla_utils$(LIB_EXT) \
 	$(_PLUGIN_UIS:%=resources/%$(APP_EXT))
 
 ifeq ($(MACOS),true)
 _CARLA_HOST_FILES += carla-bridge-lv2-cocoa$(APP_EXT)
 _CARLA_HOST_FILES += magic.mgc
-else ifeq ($(WIN32),true)
+else ifeq ($(WINDOWS),true)
 _CARLA_HOST_FILES += carla-bridge-lv2-windows$(APP_EXT)
 endif
 
@@ -87,10 +92,6 @@ _CARLA_HOST_FILES += carla-discovery-win32$(APP_EXT)
 endif
 
 _CARLA_APP_FILES = \
-	Carla$(APP_EXT) \
-	libcarla_host-plugin$(LIB_EXT) \
-	libcarla_native-plugin$(LIB_EXT) \
-	libcarla_standalone2$(LIB_EXT) \
 	$(_CARLA_HOST_FILES) \
 	$(_PYTHON_FILES) \
 	$(_QT5_DLLS) \
@@ -98,8 +99,16 @@ _CARLA_APP_FILES = \
 	$(_THEME_FILES) \
 	resources/lib
 
+ifneq ($(EMBED_TARGET),true)
+_CARLA_APP_FILES += \
+	Carla$(APP_EXT) \
+	libcarla_host-plugin$(LIB_EXT) \
+	libcarla_native-plugin$(LIB_EXT) \
+	libcarla_standalone2$(LIB_EXT)
+
 _CARLA_CONTROL_APP_FILES = \
 	Carla-Control$(APP_EXT) \
+	libcarla_frontend$(LIB_EXT) \
 	libcarla_utils$(LIB_EXT) \
 	$(_PYTHON_FILES) \
 	$(_QT5_DLLS) \
@@ -132,7 +141,7 @@ _CARLA_VST2SYN_PLUGIN_FILES = \
 	$(_QT5_DLLS:%=carla.vst/Contents/MacOS/resources/%) \
 	$(_QT5_PLUGINS:%=carla.vst/Contents/MacOS/resources/%) \
 	$(_THEME_FILES:%=carla.vst/Contents/MacOS/resources/%)
-else ifeq ($(WIN32),true)
+else ifeq ($(WINDOWS),true)
 _CARLA_VST2_PLUGIN_FILES = \
 	carla.vst/CarlaVstShell.dll \
 	carla.vst/CarlaVstFxShell.dll \
@@ -143,12 +152,13 @@ _CARLA_VST2_PLUGIN_FILES = \
 	$(_QT5_PLUGINS:%=carla.vst/resources/%) \
 	$(_THEME_FILES:%=carla.vst/resources/%)
 endif
+endif # EMBED_TARGET
 
 ifeq ($(MACOS),true)
 CARLA_APP_FILES = $(_CARLA_APP_FILES:%=build/Carla.app/Contents/MacOS/%)
 CARLA_CONTROL_APP_FILES = $(_CARLA_CONTROL_APP_FILES:%=build/Carla-Control.app/Contents/MacOS/%)
 CARLA_PLUGIN_ZIPS = $(_PLUGIN_UIS:%=build/%.app/Contents/MacOS/lib/library.zip)
-else ifeq ($(WIN32),true)
+else ifeq ($(WINDOWS),true)
 CARLA_APP_FILES = $(_CARLA_APP_FILES:%=build/Carla/%)
 CARLA_CONTROL_APP_FILES = $(_CARLA_CONTROL_APP_FILES:%=build/Carla-Control/%)
 CARLA_PLUGIN_FILES = $(_CARLA_LV2_PLUGIN_FILES:%=build/%) $(_CARLA_VST2_PLUGIN_FILES:%=build/%)
@@ -162,13 +172,20 @@ ifeq ($(MACOS_UNIVERSAL),true)
 TARGETS = Carla-$(VERSION)-macOS-universal.dmg
 else ifeq ($(MACOS),true)
 TARGETS = Carla-$(VERSION)-macOS.dmg
-else ifeq ($(WIN64),true)
+else ifeq ($(WINDOWS),true)
+ifeq ($(CPU_X86_64),true)
 TARGETS = Carla-$(VERSION)-win64.zip
-else ifeq ($(WIN32),true)
+else
 TARGETS = Carla-$(VERSION)-win32.zip
 endif
+endif
 
+ifeq ($(HAVE_QT5PKG),true)
 dist: $(TARGETS)
+else
+dist:
+	@echo make dist not supported in this configuration
+endif
 
 # ---------------------------------------------------------------------------------------------------------------------
 # create final file
@@ -209,6 +226,7 @@ endef
 define GENERATE_FINAL_ZIP
 endef
 endif
+
 # ---------------------------------------------------------------------------------------------------------------------
 # macOS plist files
 
@@ -285,7 +303,7 @@ define CLEANUP_AND_PATCH_CXFREEZE_FILES
 			$(call PATCH_QT_DEPENDENCIES,$$f); \
 		done)
 endef
-else ifeq ($(WIN32),true)
+else ifeq ($(WINDOWS),true)
 define CLEANUP_AND_PATCH_CXFREEZE_FILES
 	# cleanup
 	find build/${1}/ -type f -name "*.py" -delete
@@ -310,7 +328,7 @@ define GENERATE_LIBRARY_ZIP
 	rm -rf build/exe.*
 	env PYTHONPATH=$(CURDIR)/source/frontend SCRIPT_NAME=${1} $(PYTHON) ./data/macos/bundle.py bdist_mac --bundle-name=${1} 1>/dev/null
 endef
-else ifeq ($(WIN32),true)
+else ifeq ($(WINDOWS),true)
 define GENERATE_LIBRARY_ZIP
 	env PYTHONPATH="$(CURDIR)/source/frontend;$(QT5_PREFIX)/lib/python3/site-packages" SCRIPT_NAME=${1} $(PYTHON) ./data/windows/app-gui.py build_exe 1>/dev/null
 endef
@@ -353,6 +371,9 @@ build/Carla/lib/library.zip: $(CARLA_PLUGIN_ZIPS) data/windows/app-gui.py source
 		zip -r -9 ../library.zip *)
 	rm -rf build/Carla/lib/_lib
 	rm -rf build/Carla/lib/library-main.zip
+ifeq ($(EMBED_TARGET),true)
+	rm -f build/Carla/Carla.exe
+endif
 
 build/Carla-Control/lib/library.zip: data/windows/app-gui.py source/frontend/* resources/ico/carla-control.ico
 	$(call GENERATE_LIBRARY_ZIP,Carla-Control)

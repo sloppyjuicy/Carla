@@ -1,19 +1,5 @@
-/*
- * Carla String
- * Copyright (C) 2013-2019 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef CARLA_STRING_HPP_INCLUDED
 #define CARLA_STRING_HPP_INCLUDED
@@ -26,7 +12,7 @@
 // -----------------------------------------------------------------------
 // CarlaString class
 
-class CarlaString
+class CARLA_API CarlaString
 {
 public:
     // -------------------------------------------------------------------
@@ -297,23 +283,9 @@ public:
         CARLA_SAFE_ASSERT_RETURN(strBuf != nullptr, false);
 
         if (ignoreCase)
-        {
-#ifdef __USE_GNU
-            return (strcasestr(fBuffer, strBuf) != nullptr);
-#else
-            CarlaString tmp1(fBuffer), tmp2(strBuf);
+            return carla_strcasestr(fBuffer, strBuf) != nullptr;
 
-            // memory allocation failed or empty string(s)
-            if (tmp1.fBuffer == _null() || tmp2.fBuffer == _null())
-                return false;
-
-            tmp1.toLower();
-            tmp2.toLower();
-            return (std::strstr(tmp1, tmp2) != nullptr);
-#endif
-        }
-
-        return (std::strstr(fBuffer, strBuf) != nullptr);
+        return std::strstr(fBuffer, strBuf) != nullptr;
     }
 
     /*
@@ -419,7 +391,7 @@ public:
 
         if (char* const subStrBuf = std::strstr(fBuffer, strBuf))
         {
-            const ssize_t ret(subStrBuf - fBuffer);
+            const ssize_t ret = subStrBuf - fBuffer;
 
             if (ret < 0)
             {
@@ -643,7 +615,7 @@ public:
             "abcdefghijklmnopqrstuvwxyz"
             "0123456789+/";
 
-        const std::size_t kTmpBufSize = std::min(carla_nextPowerOf2(static_cast<uint32_t>(dataSize/3)), 65536U);
+        static constexpr const std::size_t kTmpBufSize = 65536U;
 
         const uchar* bytesToEncode((const uchar*)data);
 
@@ -722,8 +694,7 @@ public:
 
         carla_safe_assert("pos < fBufferLen", __FILE__, __LINE__);
 
-        static char fallback;
-        fallback = '\0';
+        static char fallback = '\0';
         return fallback;
     }
 
@@ -734,8 +705,7 @@ public:
 
         carla_safe_assert("pos < fBufferLen", __FILE__, __LINE__);
 
-        static char fallback;
-        fallback = '\0';
+        static char fallback = '\0';
         return fallback;
     }
 
@@ -813,18 +783,24 @@ public:
 
         const std::size_t strBufLen = std::strlen(strBuf);
         const std::size_t newBufSize = fBufferLen + strBufLen;
-        char* const newBuf = (char*)malloc(newBufSize + 1);
+        char* const newBuf = (char*)std::malloc(newBufSize + 1);
         CARLA_SAFE_ASSERT_RETURN(newBuf != nullptr, CarlaString());
 
         std::memcpy(newBuf, fBuffer, fBufferLen);
         std::memcpy(newBuf + fBufferLen, strBuf, strBufLen + 1);
 
-        return CarlaString(newBuf);
+        return CarlaString(newBuf, false);
     }
 
     CarlaString operator+(const CarlaString& str) noexcept
     {
         return operator+(str.fBuffer);
+    }
+
+    // needed for std::map compatibility
+    bool operator<(const CarlaString& str) const noexcept
+    {
+        return std::strcmp(fBuffer, str.fBuffer) < 0;
     }
 
     // -------------------------------------------------------------------
@@ -912,7 +888,7 @@ CarlaString operator+(const CarlaString& strBefore, const char* const strBufAfte
     const std::size_t strBeforeLen = strBefore.length();
     const std::size_t strBufAfterLen = std::strlen(strBufAfter);
     const std::size_t newBufSize = strBeforeLen + strBufAfterLen;
-    char* const newBuf = (char*)malloc(newBufSize + 1);
+    char* const newBuf = (char*)std::malloc(newBufSize + 1);
     CARLA_SAFE_ASSERT_RETURN(newBuf != nullptr, CarlaString());
 
     std::memcpy(newBuf, strBefore.buffer(), strBeforeLen);
@@ -932,7 +908,7 @@ CarlaString operator+(const char* const strBufBefore, const CarlaString& strAfte
     const std::size_t strBufBeforeLen = std::strlen(strBufBefore);
     const std::size_t strAfterLen = strAfter.length();
     const std::size_t newBufSize = strBufBeforeLen + strAfterLen;
-    char* const newBuf = (char*)malloc(newBufSize + 1);
+    char* const newBuf = (char*)std::malloc(newBufSize + 1);
     CARLA_SAFE_ASSERT_RETURN(newBuf != nullptr, CarlaString());
 
     std::memcpy(newBuf, strBufBefore, strBufBeforeLen);

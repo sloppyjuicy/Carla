@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017-2019 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -44,29 +44,6 @@ namespace water {
 template <class ElementType>
 class ArrayAllocationBase
 {
-#if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-private:
-   #if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 5
-    template <typename T>
-    struct IsTriviallyCopyable : std::integral_constant<bool, false> {};
-   #else
-    template <typename T>
-    using IsTriviallyCopyable = std::is_trivially_copyable<T>;
-   #endif
-
-    template <typename T>
-    using TriviallyCopyableVoid = typename std::enable_if<IsTriviallyCopyable<T>::value, void>::type;
-
-    template <typename T>
-    using TriviallyCopyableBool = typename std::enable_if<IsTriviallyCopyable<T>::value, bool>::type;
-
-    template <typename T>
-    using NonTriviallyCopyableVoid = typename std::enable_if<! IsTriviallyCopyable<T>::value, void>::type;
-
-    template <typename T>
-    using NonTriviallyCopyableBool = typename std::enable_if<! IsTriviallyCopyable<T>::value, bool>::type;
-#endif // WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-
 public:
     //==============================================================================
     /** Creates an empty array. */
@@ -81,19 +58,6 @@ public:
     {
     }
 
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    ArrayAllocationBase (ArrayAllocationBase<ElementType>&& other) noexcept
-        : elements (static_cast<HeapBlock<ElementType>&&> (other.elements)),
-          numAllocated (other.numAllocated) {}
-
-    ArrayAllocationBase& operator= (ArrayAllocationBase<ElementType>&& other) noexcept
-    {
-        elements = static_cast<HeapBlock<ElementType>&&> (other.elements);
-        numAllocated = other.numAllocated;
-        return *this;
-    }
-   #endif
-
     //==============================================================================
     /** Changes the amount of storage allocated.
 
@@ -102,12 +66,7 @@ public:
 
         @param numNewElements  the number of elements that are needed
     */
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    template <typename T = ElementType> TriviallyCopyableBool<T>
-   #else
-    bool
-   #endif
-    setAllocatedSize (const size_t numNewElements) noexcept
+    bool setAllocatedSize (const size_t numNewElements) noexcept
     {
         if (numAllocated != numNewElements)
         {
@@ -126,45 +85,6 @@ public:
 
         return true;
     }
-
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    template <typename T = ElementType>
-    NonTriviallyCopyableBool<T> setAllocatedSize (const size_t numNewElements) noexcept
-    {
-        if (numAllocated == numNewElements)
-            return true;
-
-        if (numNewElements > 0)
-        {
-            HeapBlock<ElementType> newElements;
-
-            if (! newElements.malloc (numNewElements))
-                return false;
-
-            size_t i = 0;
-
-            for (; i < numNewElements; ++i)
-            {
-                if (i < numAllocated)
-                    new (newElements + i) ElementType (std::move (elements[i]));
-                else
-                    new (newElements + i) ElementType ();
-            }
-
-            for (; i < numAllocated; ++i)
-                elements[i].~ElementType();
-
-            elements = std::move (newElements);
-        }
-        else
-        {
-            elements.free();
-        }
-
-        numAllocated = numNewElements;
-        return true;
-    }
-   #endif
 
     /** Increases the amount of storage allocated if it is less than a given amount.
 
@@ -200,12 +120,7 @@ public:
         std::swap (numAllocated, other.numAllocated);
     }
 
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    template <typename T = ElementType> TriviallyCopyableVoid<T>
-   #else
-    void
-   #endif
-    moveMemory (ElementType* target, const ElementType* source, const size_t numElements) noexcept
+    void moveMemory (ElementType* target, const ElementType* source, const size_t numElements) noexcept
     {
         CARLA_SAFE_ASSERT_RETURN(target != nullptr,);
         CARLA_SAFE_ASSERT_RETURN(source != nullptr,);
@@ -215,52 +130,11 @@ public:
         std::memmove (target, source, ((size_t) numElements) * sizeof (ElementType));
     }
 
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    template <typename T = ElementType>
-    NonTriviallyCopyableVoid<T> moveMemory (ElementType* target, const ElementType* source, const size_t numElements) noexcept
-    {
-        CARLA_SAFE_ASSERT_RETURN(target != nullptr,);
-        CARLA_SAFE_ASSERT_RETURN(source != nullptr,);
-        CARLA_SAFE_ASSERT_RETURN(target != source,);
-        CARLA_SAFE_ASSERT_RETURN(numElements != 0,);
-
-        if (target > source)
-        {
-            for (size_t i = 0; i < numElements; ++i)
-            {
-                moveElement (target, std::move (*source));
-                ++target;
-                ++source;
-            }
-
-            (--source)->~ElementType();
-        }
-        else
-        {
-            for (size_t i = 0; i < numElements; ++i)
-            {
-                moveElement (target, std::move (*source));
-                --target;
-                --source;
-            }
-
-            (++source)->~ElementType();
-        }
-    }
-
-    void moveElement (ElementType* destination, const ElementType&& source)
-    {
-        destination->~ElementType();
-        new (destination) ElementType (std::move (source));
-    }
-   #endif
-
     //==============================================================================
     HeapBlock<ElementType> elements;
     size_t numAllocated;
 
-private:
-    CARLA_DECLARE_NON_COPY_CLASS (ArrayAllocationBase)
+    CARLA_DECLARE_NON_COPYABLE (ArrayAllocationBase)
 };
 
 }

@@ -1,34 +1,27 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
-# Pixmap Keyboard, a custom Qt widget
-# Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License as
-# published by the Free Software Foundation; either version 2 of
-# the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# For a full copy of the GNU General Public License see the doc/GPL.txt file.
-
-# ------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------
 # Imports (Global)
 
-from PyQt5.QtCore import pyqtSignal, pyqtSlot, qCritical, Qt, QPointF, QRectF, QTimer, QSize
-from PyQt5.QtGui import QColor, QFont, QPainter, QPixmap
-from PyQt5.QtWidgets import QActionGroup, QMenu, QScrollArea, QWidget
+from qt_compat import qt_config
 
-# ------------------------------------------------------------------------------------------------------------
-# Imports (Custom)
+if qt_config == 5:
+    from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt, QPointF, QRectF, QTimer, QSize
+    from PyQt5.QtGui import QColor, QPainter, QPixmap
+    from PyQt5.QtWidgets import QActionGroup, QMenu, QScrollArea, QWidget
+elif qt_config == 6:
+    from PyQt6.QtCore import pyqtSignal, pyqtSlot, Qt, QPointF, QRectF, QTimer, QSize
+    from PyQt6.QtGui import QActionGroup, QColor, QPainter, QPixmap
+    from PyQt6.QtWidgets import QMenu, QScrollArea, QWidget
 
-from carla_shared import QSafeSettings
+# ---------------------------------------------------------------------------------------------------------------------
+# Imports (Carla)
 
-# ------------------------------------------------------------------------------------------------------------
+from utils import QSafeSettings
+
+# ---------------------------------------------------------------------------------------------------------------------
 
 kMidiKey2RectMapHorizontal = [
     QRectF(0,   0, 24, 57), # C
@@ -174,6 +167,12 @@ kPcKeysLayouts = {
 kValidColors = ("Blue", "Green", "Orange", "Red")
 
 kBlackNotes = (1, 3, 6, 8, 10)
+
+# ------------------------------------------------------------------------------------------------------------
+
+def _isNoteBlack(note):
+    baseNote = note % 12
+    return bool(baseNote in kBlackNotes)
 
 # ------------------------------------------------------------------------------------------------------------
 # MIDI Keyboard, using a pixmap for painting
@@ -502,7 +501,7 @@ class PixmapKeyboard(QWidget):
         for note in self.fEnabledKeys:
             pos = self._getRectFromMidiNote(note)
 
-            if self._isNoteBlack(note):
+            if _isNoteBlack(note):
                 continue
 
             if note < 12:
@@ -558,7 +557,7 @@ class PixmapKeyboard(QWidget):
         for note in self.fEnabledKeys:
             pos = self._getRectFromMidiNote(note)
 
-            if not self._isNoteBlack(note):
+            if not _isNoteBlack(note):
                 continue
 
             if note < 12:
@@ -605,15 +604,11 @@ class PixmapKeyboard(QWidget):
                              Qt.AlignCenter,
                              "C{}".format(octave))
 
-    def _isNoteBlack(self, note):
-        baseNote = note % 12
-        return bool(baseNote in kBlackNotes)
-
     def _getRectFromMidiNote(self, note):
         baseNote = note % 12
         return self.fKey2RectMap[baseNote]
 
-# ------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------
 # Horizontal scroll area for keyboard
 
 class PixmapKeyboardHArea(QScrollArea):
@@ -628,7 +623,7 @@ class PixmapKeyboardHArea(QScrollArea):
         self.setWidget(self.keyboard)
 
         self.setEnabled(False)
-        self.setFixedHeight(self.keyboard.height() + self.horizontalScrollBar().height()/2 + 2)
+        self.setFixedHeight(int(self.keyboard.height() + self.horizontalScrollBar().height()/2 + 2))
 
         QTimer.singleShot(0, self.slot_initScrollbarValue)
 
@@ -639,20 +634,6 @@ class PixmapKeyboardHArea(QScrollArea):
 
     @pyqtSlot()
     def slot_initScrollbarValue(self):
-        self.horizontalScrollBar().setValue(self.horizontalScrollBar().maximum()/2)
+        self.horizontalScrollBar().setValue(int(self.horizontalScrollBar().maximum()/2))
 
-# ------------------------------------------------------------------------------------------------------------
-# Main Testing
-
-if __name__ == '__main__':
-    import sys
-    from PyQt5.QtWidgets import QApplication
-    import resources_rc
-
-    app = QApplication(sys.argv)
-
-    gui = PixmapKeyboard(None)
-    gui.setEnabled(True)
-    gui.show()
-
-    sys.exit(app.exec_())
+# ---------------------------------------------------------------------------------------------------------------------

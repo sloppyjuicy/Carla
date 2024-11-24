@@ -1,6 +1,6 @@
 /*
  * Carla Plugin UI
- * Copyright (C) 2014-2021 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2014-2022 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -29,7 +29,7 @@ public:
     public:
         virtual ~Callback() {}
         virtual void handlePluginUIClosed() = 0;
-        virtual void handlePluginUIResized(const uint width, const uint height) = 0;
+        virtual void handlePluginUIResized(uint width, uint height) = 0;
     };
 
     virtual ~CarlaPluginUI() {}
@@ -37,17 +37,18 @@ public:
     virtual void hide() = 0;
     virtual void focus() = 0;
     virtual void idle() = 0;
-    virtual void setSize(const uint with, const uint height, const bool forceUpdate) = 0;
-    virtual void setTitle(const char* const title) = 0;
-    virtual void setChildWindow(void* const ptr) = 0;
-    virtual void setTransientWinId(const uintptr_t winId) = 0;
+    virtual void setMinimumSize(uint with, uint height) = 0;
+    virtual void setSize(uint with, uint height, bool forceUpdate, bool resizeChild) = 0;
+    virtual void setTitle(const char* title) = 0;
+    virtual void setChildWindow(void* ptr) = 0;
+    virtual void setTransientWinId(uintptr_t winId) = 0;
     virtual void* getPtr() const noexcept = 0;
 #ifdef HAVE_X11
     virtual void* getDisplay() const noexcept = 0;
 #endif
 
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
-    static bool tryTransientWinIdMatch(const uintptr_t pid, const char* const uiTitle, const uintptr_t winId, const bool centerUI);
+    static bool tryTransientWinIdMatch(uintptr_t pid, const char* uiTitle, uintptr_t winId, bool centerUI);
 #endif
 
 #ifdef CARLA_OS_MAC
@@ -74,7 +75,7 @@ protected:
           fIsResizable(isResizable),
           fCallback(cb) {}
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaPluginUI)
+    CARLA_DECLARE_NON_COPYABLE(CarlaPluginUI)
 };
 
 // -----------------------------------------------------

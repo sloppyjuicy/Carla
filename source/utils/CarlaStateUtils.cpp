@@ -1,6 +1,6 @@
 /*
  * Carla State utils
- * Copyright (C) 2012-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2024 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -122,16 +122,16 @@ CarlaStateSave::Parameter::Parameter() noexcept
       index(-1),
       name(nullptr),
       symbol(nullptr),
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+     #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
       value(0.0f),
       mappedControlIndex(CONTROL_INDEX_NONE),
       midiChannel(0),
       mappedRangeValid(false),
       mappedMinimum(0.0f),
       mappedMaximum(1.0f) {}
-#else
+     #else
       value(0.0f) {}
-#endif
+     #endif
 
 CarlaStateSave::Parameter::~Parameter() noexcept
 {
@@ -191,9 +191,9 @@ CarlaStateSave::CarlaStateSave() noexcept
       label(nullptr),
       binary(nullptr),
       uniqueId(0),
-      options(0x0),
+      options(PLUGIN_OPTIONS_NULL),
       temporary(false),
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+     #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
       active(false),
       dryWet(1.0f),
       volume(1.0f),
@@ -201,7 +201,7 @@ CarlaStateSave::CarlaStateSave() noexcept
       balanceRight(1.0f),
       panning(0.0f),
       ctrlChannel(-1),
-#endif
+     #endif
       currentProgramIndex(-1),
       currentProgramName(nullptr),
       currentMidiBank(-1),
@@ -249,9 +249,9 @@ void CarlaStateSave::clear() noexcept
     }
 
     uniqueId = 0;
-    options  = 0x0;
+    options  = PLUGIN_OPTIONS_NULL;
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+   #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     active = false;
     dryWet = 1.0f;
     volume = 1.0f;
@@ -259,7 +259,7 @@ void CarlaStateSave::clear() noexcept
     balanceRight = 1.0f;
     panning      = 0.0f;
     ctrlChannel  = -1;
-#endif
+   #endif
 
     currentProgramIndex = -1;
     currentMidiBank     = -1;
@@ -310,7 +310,7 @@ bool CarlaStateSave::fillFromXmlElement(const XmlElement* const xmlElement)
                     name = xmlSafeStringCharDup(text, false);
                 else if (tag == "Label" || tag == "URI" || tag == "Identifier" || tag == "Setup")
                     label = xmlSafeStringCharDup(text, false);
-                else if (tag == "Binary" || tag == "Filename")
+                else if (tag == "Binary" || tag == "Bundle" || tag == "Filename")
                     binary = xmlSafeStringCharDup(text, false);
                 else if (tag == "UniqueID")
                     uniqueId = text.getLargeIntValue();
@@ -327,11 +327,17 @@ bool CarlaStateSave::fillFromXmlElement(const XmlElement* const xmlElement)
                 const String& tag(xmlData->getTagName());
                 const String  text(xmlData->getAllSubText().trim());
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
                 // -------------------------------------------------------
                 // Internal Data
 
-                /**/ if (tag == "Active")
+                /**/ if (tag == "Options")
+                {
+                    const int value(text.getHexValue32());
+                    if (value > 0)
+                        options = static_cast<uint>(value);
+                }
+               #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+                else if (tag == "Active")
                 {
                     active = (text == "Yes");
                 }
@@ -364,15 +370,7 @@ bool CarlaStateSave::fillFromXmlElement(const XmlElement* const xmlElement)
                             ctrlChannel = static_cast<int8_t>(value-1);
                     }
                 }
-                else if (tag == "Options")
-                {
-                    const int value(text.getHexValue32());
-                    if (value > 0)
-                        options = static_cast<uint>(value);
-                }
-#else
-                if (false) {}
-#endif
+               #endif
 
                 // -------------------------------------------------------
                 // Program (current)
@@ -410,9 +408,9 @@ bool CarlaStateSave::fillFromXmlElement(const XmlElement* const xmlElement)
                 else if (tag == "Parameter")
                 {
                     Parameter* const stateParameter(new Parameter());
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+                   #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
                     bool hasMappedMinimum = false, hasMappedMaximum = false;
-#endif
+                   #endif
 
                     for (XmlElement* xmlSubData = xmlData->getFirstChildElement(); xmlSubData != nullptr; xmlSubData = xmlSubData->getNextElement())
                     {
@@ -429,7 +427,7 @@ bool CarlaStateSave::fillFromXmlElement(const XmlElement* const xmlElement)
                         {
                             stateParameter->name = xmlSafeStringCharDup(pText, false);
                         }
-                        else if (pTag == "Symbol")
+                        else if (pTag == "Symbol" || pTag == "Identifier")
                         {
                             stateParameter->symbol = xmlSafeStringCharDup(pText, false);
                         }
@@ -438,7 +436,7 @@ bool CarlaStateSave::fillFromXmlElement(const XmlElement* const xmlElement)
                             stateParameter->dummy = false;
                             stateParameter->value = pText.getFloatValue();
                         }
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+                       #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
                         else if (pTag == "MidiChannel")
                         {
                             const int channel(pText.getIntValue());
@@ -468,13 +466,13 @@ bool CarlaStateSave::fillFromXmlElement(const XmlElement* const xmlElement)
                             hasMappedMaximum = true;
                             stateParameter->mappedMaximum = pText.getFloatValue();
                         }
-#endif
+                       #endif
                     }
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+                   #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
                     if (hasMappedMinimum && hasMappedMaximum)
                         stateParameter->mappedRangeValid = true;
-#endif
+                   #endif
 
                     parameters.append(stateParameter);
                 }
@@ -486,23 +484,58 @@ bool CarlaStateSave::fillFromXmlElement(const XmlElement* const xmlElement)
                 {
                     CustomData* const stateCustomData(new CustomData());
 
+                    // find type first
                     for (XmlElement* xmlSubData = xmlData->getFirstChildElement(); xmlSubData != nullptr; xmlSubData = xmlSubData->getNextElement())
                     {
                         const String& cTag(xmlSubData->getTagName());
-                        const String  cText(xmlSubData->getAllSubText().trim());
 
-                        /**/ if (cTag == "Type")
-                            stateCustomData->type = xmlSafeStringCharDup(cText, false);
-                        else if (cTag == "Key")
-                            stateCustomData->key = xmlSafeStringCharDup(cText, false);
+                        if (cTag != "Type")
+                            continue;
+
+                        stateCustomData->type = xmlSafeStringCharDup(xmlSubData->getAllSubText().trim(), false);
+                        break;
+                    }
+
+                    if (stateCustomData->type == nullptr || stateCustomData->type[0] == '\0')
+                    {
+                        carla_stderr("Reading CustomData type failed");
+                        delete stateCustomData;
+                        continue;
+                    }
+
+                    // now fill in key and value, knowing what the type is
+                    for (XmlElement* xmlSubData = xmlData->getFirstChildElement(); xmlSubData != nullptr; xmlSubData = xmlSubData->getNextElement())
+                    {
+                        const String& cTag(xmlSubData->getTagName());
+                        String cText(xmlSubData->getAllSubText());
+
+                        /**/ if (cTag == "Key")
+                        {
+                            stateCustomData->key = xmlSafeStringCharDup(cText.trim(), false);
+                        }
                         else if (cTag == "Value")
-                            stateCustomData->value = carla_strdup(cText.toRawUTF8()); //xmlSafeStringCharDup(cText, false);
+                        {
+                            // save operation adds a newline and newline+space around the string in some cases
+                            const int len = cText.length();
+                            if (std::strcmp(stateCustomData->type, CUSTOM_DATA_TYPE_CHUNK) == 0 || len >= 128+6)
+                            {
+                                CARLA_SAFE_ASSERT_CONTINUE(len >= 6);
+                                cText = cText.substring(1, len - 5);
+                            }
+
+                            stateCustomData->value = xmlSafeStringCharDup(cText, false);
+                        }
                     }
 
                     if (stateCustomData->isValid())
+                    {
                         customData.append(stateCustomData);
+                    }
                     else
+                    {
                         carla_stderr("Reading CustomData property failed, missing data");
+                        delete stateCustomData;
+                    }
                 }
 
                 // -------------------------------------------------------
@@ -524,6 +557,8 @@ bool CarlaStateSave::fillFromXmlElement(const XmlElement* const xmlElement)
 
 void CarlaStateSave::dumpToMemoryStream(MemoryOutputStream& content) const
 {
+    const PluginType pluginType = getPluginTypeFromString(type);
+
     {
         MemoryOutputStream infoXml;
 
@@ -531,7 +566,7 @@ void CarlaStateSave::dumpToMemoryStream(MemoryOutputStream& content) const
         infoXml << "   <Type>" << String(type != nullptr ? type : "") << "</Type>\n";
         infoXml << "   <Name>" << xmlSafeString(name, true) << "</Name>\n";
 
-        switch (getPluginTypeFromString(type))
+        switch (pluginType)
         {
         case PLUGIN_NONE:
             break;
@@ -559,11 +594,17 @@ void CarlaStateSave::dumpToMemoryStream(MemoryOutputStream& content) const
             infoXml << "   <Label>"    << xmlSafeString(label, true)  << "</Label>\n";
             break;
         case PLUGIN_AU:
+            infoXml << "   <Bundle>"   << xmlSafeString(binary, true) << "</Bundle>\n";
             infoXml << "   <Identifier>" << xmlSafeString(label, true) << "</Identifier>\n";
+            break;
+        case PLUGIN_CLAP:
+            infoXml << "   <Binary>"     << xmlSafeString(binary, true) << "</Binary>\n";
+            infoXml << "   <Identifier>" << xmlSafeString(label, true)  << "</Identifier>\n";
             break;
         case PLUGIN_DLS:
         case PLUGIN_GIG:
         case PLUGIN_SF2:
+        case PLUGIN_JSFX:
             infoXml << "   <Filename>"   << xmlSafeString(binary, true) << "</Filename>\n";
             infoXml << "   <Label>"      << xmlSafeString(label, true)  << "</Label>\n";
             break;
@@ -574,6 +615,8 @@ void CarlaStateSave::dumpToMemoryStream(MemoryOutputStream& content) const
             infoXml << "   <Filename>"   << xmlSafeString(binary, true) << "</Filename>\n";
             infoXml << "   <Setup>"      << xmlSafeString(label, true)  << "</Setup>\n";
             break;
+        case PLUGIN_TYPE_COUNT:
+            break;
         }
 
         infoXml << "  </Info>\n\n";
@@ -583,7 +626,7 @@ void CarlaStateSave::dumpToMemoryStream(MemoryOutputStream& content) const
 
     content << "  <Data>\n";
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+   #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     {
         MemoryOutputStream dataXml;
 
@@ -609,7 +652,7 @@ void CarlaStateSave::dumpToMemoryStream(MemoryOutputStream& content) const
 
         content << dataXml;
     }
-#endif
+   #endif
 
     for (ParameterItenerator it = parameters.begin2(); it.valid(); it.next())
     {
@@ -624,9 +667,14 @@ void CarlaStateSave::dumpToMemoryStream(MemoryOutputStream& content) const
         parameterXml << "    <Name>"  << xmlSafeString(stateParameter->name, true) << "</Name>\n";
 
         if (stateParameter->symbol != nullptr && stateParameter->symbol[0] != '\0')
-            parameterXml << "    <Symbol>" << xmlSafeString(stateParameter->symbol, true) << "</Symbol>\n";
+        {
+            if (pluginType == PLUGIN_CLAP)
+                parameterXml << "    <Identifier>" << xmlSafeString(stateParameter->symbol, true) << "</Identifier>\n";
+            else
+                parameterXml << "    <Symbol>" << xmlSafeString(stateParameter->symbol, true) << "</Symbol>\n";
+        }
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+       #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
         if (stateParameter->mappedControlIndex > CONTROL_INDEX_NONE && stateParameter->mappedControlIndex <= CONTROL_INDEX_MAX_ALLOWED)
         {
             parameterXml << "    <MidiChannel>"   << stateParameter->midiChannel+1 << "</MidiChannel>\n";
@@ -642,7 +690,7 @@ void CarlaStateSave::dumpToMemoryStream(MemoryOutputStream& content) const
             if (stateParameter->mappedControlIndex > 0 && stateParameter->mappedControlIndex < MAX_MIDI_CONTROL)
                 parameterXml << "    <MidiCC>" << stateParameter->mappedControlIndex << "</MidiCC>\n";
         }
-#endif
+       #endif
 
         if (! stateParameter->dummy)
             parameterXml << "    <Value>" << String(stateParameter->value, 15) << "</Value>\n";

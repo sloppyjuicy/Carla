@@ -1,6 +1,6 @@
 /*
  * Carla Log Thread
- * Copyright (C) 2013-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2013-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -26,11 +26,12 @@
 
 #ifdef CARLA_OS_WIN
 # include <io.h>
-# define _close(fd) close(fd)
-# define _dup2(f1,f2) dup2(f1,f2)
+# define close _close
+# define dup _dup
+# define dup2 _dup2
 #endif
 
-using CarlaBackend::EngineCallbackFunc;
+using CARLA_BACKEND_NAMESPACE::EngineCallbackFunc;
 
 // -----------------------------------------------------------------------
 // Log thread
@@ -55,7 +56,7 @@ public:
         std::fflush(stdout);
         std::fflush(stderr);
 
-#ifdef CARLA_OS_WIN
+       #ifdef CARLA_OS_WIN
         // TODO: use process id instead
         const int randint = std::rand();
 
@@ -70,7 +71,9 @@ public:
         CARLA_SAFE_ASSERT_RETURN(fPipe[1] != INVALID_HANDLE_VALUE,);
 
         const int pipe1 = _open_osfhandle((INT_PTR)fPipe[1], _O_WRONLY | _O_BINARY);
-#else
+        const int stdout_fileno = _fileno(stdout);
+        const int stderr_fileno = _fileno(stderr);
+       #else
         CARLA_SAFE_ASSERT_RETURN(pipe(fPipe) == 0,);
 
         if (fcntl(fPipe[0], F_SETFL, O_NONBLOCK) != 0)
@@ -81,13 +84,15 @@ public:
         }
 
         const int pipe1 = fPipe[1];
-#endif
+        const int stdout_fileno = STDOUT_FILENO;
+        const int stderr_fileno = STDERR_FILENO;
+       #endif
 
-        fStdOut = dup(STDOUT_FILENO);
-        fStdErr = dup(STDERR_FILENO);
+        fStdOut = dup(stdout_fileno);
+        fStdErr = dup(stderr_fileno);
 
-        dup2(pipe1, STDOUT_FILENO);
-        dup2(pipe1, STDERR_FILENO);
+        dup2(pipe1, stdout_fileno);
+        dup2(pipe1, stderr_fileno);
 
         startThread();
     }
@@ -102,16 +107,22 @@ public:
         std::fflush(stdout);
         std::fflush(stderr);
 
-#ifdef CARLA_OS_WIN
+       #ifdef CARLA_OS_WIN
         CloseHandle(fPipe[0]);
         CloseHandle(fPipe[1]);
-#else
+
+        const int stdout_fileno = _fileno(stdout);
+        const int stderr_fileno = _fileno(stderr);
+       #else
         close(fPipe[0]);
         close(fPipe[1]);
-#endif
 
-        dup2(fStdOut, STDOUT_FILENO);
-        dup2(fStdErr, STDERR_FILENO);
+        const int stdout_fileno = STDOUT_FILENO;
+        const int stderr_fileno = STDERR_FILENO;
+       #endif
+
+        dup2(fStdOut, stdout_fileno);
+        dup2(fStdErr, stderr_fileno);
         close(fStdOut);
         close(fStdErr);
         fStdOut = -1;
@@ -176,7 +187,7 @@ protected:
                     bufTemp[0] = '\0';
                     bufTempPos = 0;
 
-                    fCallback(fCallbackPtr, CarlaBackend::ENGINE_CALLBACK_DEBUG, 0, 0, 0, 0, 0.0f, bufSend);
+                    fCallback(fCallbackPtr, CARLA_BACKEND_NAMESPACE::ENGINE_CALLBACK_DEBUG, 0, 0, 0, 0, 0.0f, bufSend);
                 }
 
                 if (lastRead > 0 && lastRead != r)
@@ -193,11 +204,11 @@ protected:
     }
 
 private:
-#ifdef CARLA_OS_WIN
+   #ifdef CARLA_OS_WIN
     HANDLE fPipe[2];
-#else
+   #else
     int fPipe[2];
-#endif
+   #endif
 
     int fStdOut;
     int fStdErr;
@@ -205,21 +216,22 @@ private:
     EngineCallbackFunc fCallback;
     void*              fCallbackPtr;
 
-#ifdef CARLA_OS_WIN
+   #ifdef CARLA_OS_WIN
     ssize_t read(const HANDLE pipeh, void* const buf, DWORD numBytes)
     {
         if (ReadFile(pipeh, buf, numBytes, &numBytes, nullptr) != FALSE)
             return numBytes;
         return -1;
     }
-#endif
+   #endif
 
     //CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaLogThread)
+    CARLA_DECLARE_NON_COPYABLE(CarlaLogThread)
 };
 
 #ifdef CARLA_OS_WIN
 # undef close
+# undef dup
 # undef dup2
 #endif
 

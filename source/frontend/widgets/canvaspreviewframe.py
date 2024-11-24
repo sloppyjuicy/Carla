@@ -1,29 +1,22 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-# Custom Mini Canvas Preview, a custom Qt widget
-# Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License as
-# published by the Free Software Foundation; either version 2 of
-# the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# For a full copy of the GNU General Public License see the doc/GPL.txt file.
+# SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Imports (Global)
 
 from math import floor, ceil
 
-from PyQt5.QtCore import pyqtSignal, Qt, QRectF, QTimer, QEvent, QPoint
-from PyQt5.QtGui import QBrush, QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
-from PyQt5.QtWidgets import QFrame, QGraphicsScene
+from qt_compat import qt_config
+
+if qt_config == 5:
+    from PyQt5.QtCore import pyqtSignal, QT_VERSION, Qt, QRectF, QTimer, QEvent, QPoint
+    from PyQt5.QtGui import QBrush, QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
+    from PyQt5.QtWidgets import QFrame, QGraphicsScene
+elif qt_config == 6:
+    from PyQt6.QtCore import pyqtSignal, QT_VERSION, Qt, QRectF, QTimer, QEvent, QPoint
+    from PyQt6.QtGui import QBrush, QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
+    from PyQt6.QtWidgets import QFrame, QGraphicsScene
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Antialiasing settings
@@ -162,9 +155,9 @@ class CanvasPreviewFrame(QFrame):
         if self.fZoomCursors[self._kCursorName] != cursorName:
             prefix = ":/cursors/zoom"
             self.fZoomCursors[self._kCursorName] = cursorName
-            self.fZoomCursors[self._kCursorZoom] = QCursor(QPixmap("{}_{}.png".format(prefix, cursorName)), 8, 7)
-            self.fZoomCursors[self._kCursorZoomIn] = QCursor(QPixmap("{}-in_{}.png".format(prefix, cursorName)), 8, 7)
-            self.fZoomCursors[self._kCursorZoomOut] = QCursor(QPixmap("{}-out_{}.png".format(prefix, cursorName)), 8, 7)
+            self.fZoomCursors[self._kCursorZoom] = QCursor(QPixmap(f"{prefix}_{cursorName}.png"), 8, 7)
+            self.fZoomCursors[self._kCursorZoomIn] = QCursor(QPixmap(f"{prefix}-in_{cursorName}.png"), 8, 7)
+            self.fZoomCursors[self._kCursorZoomOut] = QCursor(QPixmap(f"{prefix}-out_{cursorName}.png"), 8, 7)
 
     # -----------------------------------------------------------------------------------------------------------------
 
@@ -184,7 +177,7 @@ class CanvasPreviewFrame(QFrame):
             self.fMouseRightDown = True
             self._updateMouseMode(event)
             return
-        if event.button() == Qt.MidButton:
+        if event.button() == Qt.MiddleButton:
             event.accept()
             self.fMouseLeftDown = True
             self.fMouseRightDown = True
@@ -195,7 +188,14 @@ class CanvasPreviewFrame(QFrame):
     def mouseMoveEvent(self, event):
         if self.fMouseMode == self._MOUSE_MODE_MOVE:
             event.accept()
-            self._moveViewRect(event.x(), event.y())
+            if QT_VERSION >= 0x60000:
+                pos = event.position()
+                x = pos.x()
+                y = pos.y()
+            else:
+                x = event.x()
+                y = event.y()
+            self._moveViewRect(x, y)
             return
         if self.fMouseMode == self._MOUSE_MODE_SCALE:
             event.accept()
@@ -207,14 +207,14 @@ class CanvasPreviewFrame(QFrame):
         if event.button() == Qt.LeftButton:
             event.accept()
             self.fMouseLeftDown = False
-            self._updateMouseMode()
+            self._updateMouseMode(event)
             return
         if event.button() == Qt.RightButton:
             event.accept()
             self.fMouseRightDown = False
             self._updateMouseMode(event)
             return
-        if event.button() == Qt.MidButton:
+        if event.button() == Qt.MiddleButton:
             event.accept()
             self.fMouseLeftDown = event.buttons() & Qt.LeftButton
             self.fMouseRightDown = event.buttons() & Qt.RightButton
@@ -368,7 +368,7 @@ class CanvasPreviewFrame(QFrame):
             fixPos = True
 
         if fixPos:
-            globalPos = self.mapToGlobal(QPoint(self.fInitialX + x, self.fInitialY + y))
+            globalPos = self.mapToGlobal(QPoint(int(self.fInitialX + x), int(self.fInitialY + y)))
             self.cursor().setPos(globalPos)
 
         x = self.fRenderSource.width() * x / self.fInternalWidth
@@ -386,7 +386,7 @@ class CanvasPreviewFrame(QFrame):
 
         self.cursor().setPos(self.fMouseInitialZoomPos)
 
-    def _updateMouseMode(self, event = None):
+    def _updateMouseMode(self, event):
         if self.fMouseLeftDown and self.fMouseRightDown:
             self.fMouseInitialZoomPos = event.globalPos()
             self.setCursor(self.fZoomCursors[self._kCursorZoom])
@@ -395,7 +395,14 @@ class CanvasPreviewFrame(QFrame):
         elif self.fMouseLeftDown:
             self.setCursor(QCursor(Qt.SizeAllCursor))
             if self.fMouseMode == self._MOUSE_MODE_NONE:
-                self._moveViewRect(event.x(), event.y())
+                if QT_VERSION >= 0x60000:
+                    pos = event.position()
+                    x = pos.x()
+                    y = pos.y()
+                else:
+                    x = event.x()
+                    y = event.y()
+                self._moveViewRect(x, y)
             self.fMouseMode = self._MOUSE_MODE_MOVE
 
         else:
@@ -406,19 +413,3 @@ class CanvasPreviewFrame(QFrame):
         self.fFrameWidth = 1 if self.fUseCustomPaint else self.frameWidth()
 
 # ---------------------------------------------------------------------------------------------------------------------
-
-if __name__ == '__main__':
-    # pylint: disable=unused-import
-    # pylint: disable=ungrouped-imports
-    import sys
-    import resources_rc
-    from PyQt5.QtWidgets import QApplication
-    # pylint: enable=unused-import
-    # pylint: enable=ungrouped-imports
-
-    app = QApplication(sys.argv)
-
-    gui = CanvasPreviewFrame(None)
-    gui.show()
-
-    sys.exit(app.exec_())

@@ -1,6 +1,6 @@
 /*
  * Carla Native Plugins
- * Copyright (C) 2012-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2022 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -53,7 +53,7 @@ protected:
         static NativeParameter param;
         static NativeParameterScalePoint scalePoints[3];
 
-        int hints = NATIVE_PARAMETER_IS_ENABLED|NATIVE_PARAMETER_IS_AUTOMABLE;
+        int hints = NATIVE_PARAMETER_IS_ENABLED|NATIVE_PARAMETER_IS_AUTOMATABLE;
 
         param.name = nullptr;
         param.unit = nullptr;
@@ -319,12 +319,12 @@ private:
             }
         }
 
-        CARLA_DECLARE_NON_COPY_STRUCT(InlineDisplay)
+        CARLA_DECLARE_NON_COPYABLE(InlineDisplay)
         CARLA_PREVENT_HEAP_ALLOCATION
     } fInlineDisplay;
 
     PluginClassEND(BigMeterPlugin)
-    CARLA_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BigMeterPlugin)
+    CARLA_DECLARE_NON_COPYABLE(BigMeterPlugin)
 };
 
 // -----------------------------------------------------------------------
@@ -351,10 +351,10 @@ static const NativePluginDescriptor bigmeterDesc = {
 
 // -----------------------------------------------------------------------
 
-CARLA_EXPORT
+CARLA_API_EXPORT
 void carla_register_native_plugin_bigmeter();
 
-CARLA_EXPORT
+CARLA_API_EXPORT
 void carla_register_native_plugin_bigmeter()
 {
     carla_register_native_plugin(&bigmeterDesc);

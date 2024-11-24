@@ -1,5 +1,6 @@
 /**
    Copyright (C) 2011-2013 Robin Gareus <robin@gareus.org>
+   Copyright (C) 2014-2023 Filipe Coelho <falktx@falktx.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU Lesser Public License as published by
@@ -16,24 +17,29 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <unistd.h>
 #include <math.h>
 
 #include "ad_plugin.h"
 
 // disable SIMD for macos-old builds
 #include "CarlaDefines.h"
-#if defined(CARLA_OS_MAC) && !defined(CARLA_PROPER_CPP11_SUPPORT)
+#if defined(CARLA_OS_WASM)
+# define MINIMP3_NO_SIMD
+#elif defined(CARLA_OS_MAC) && !defined(CARLA_PROPER_CPP11_SUPPORT)
 # define MINIMP3_NO_SIMD
 #endif
 
 #define MINIMP3_FLOAT_OUTPUT
 #define MINIMP3_IMPLEMENTATION
 #include "minimp3_ex.h"
+
+#ifdef _MSC_VER
+#define strcasecmp stricmp
+#endif
 
 /* internal abstraction */
 
@@ -74,7 +80,7 @@ static int ad_info_minimp3(void *sf, struct adinfo *nfo) {
 		nfo->sample_rate = priv->dec_ex.info.hz;
 		nfo->length = nfo->sample_rate ? (nfo->frames * 1000) / nfo->sample_rate : 0;
 		nfo->bit_depth = 16;
-		nfo->bit_rate = priv->dec_ex.info.bitrate_kbps;
+		nfo->bit_rate = priv->dec_ex.info.bitrate_kbps * 1000;
 		nfo->meta_data = NULL;
 		nfo->can_seek = 0;
 	}
@@ -126,7 +132,7 @@ static ssize_t ad_read_minimp3(void *sf, float* d, size_t len)
 static int ad_get_bitrate_minimp3(void *sf) {
 	minimp3_audio_decoder *priv = (minimp3_audio_decoder*) sf;
 	if (!priv) return -1;
-	return priv->dec_ex.info.bitrate_kbps;
+	return priv->dec_ex.info.bitrate_kbps * 1000;
 }
 
 static int ad_eval_minimp3(const char *f)

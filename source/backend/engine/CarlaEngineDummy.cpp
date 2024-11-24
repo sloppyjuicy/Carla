@@ -1,6 +1,6 @@
 /*
  * Carla Plugin Host
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -18,9 +18,7 @@
 #include "CarlaEngineGraph.hpp"
 #include "CarlaEngineInit.hpp"
 #include "CarlaEngineInternal.hpp"
-
-#include <ctime>
-#include <sys/time.h>
+#include "CarlaTimeUtils.hpp"
 
 CARLA_BACKEND_START_NAMESPACE
 
@@ -75,7 +73,7 @@ public:
 
         pData->graph.create(2, 2, 0, 0);
 
-        if (! startThread(true))
+        if (! startThread())
         {
             close();
             setLastError("Failed to start dummy audio thread");
@@ -104,6 +102,11 @@ public:
         CarlaEngine::close();
 
         pData->graph.destroy();
+        return true;
+    }
+
+    bool hasIdleOnMainThread() const noexcept override
+    {
         return true;
     }
 
@@ -187,32 +190,19 @@ public:
     // -------------------------------------------------------------------
 
 protected:
-    static int64_t getTimeInMicroseconds() noexcept
-    {
-    #if defined(CARLA_OS_MAC) || defined(CARLA_OS_WIN)
-        struct timeval tv;
-        gettimeofday(&tv, nullptr);
-
-        return (tv.tv_sec * 1000000) + tv.tv_usec;
-    #else
-        struct timespec ts;
-    # ifdef CLOCK_MONOTONIC_RAW
-        clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-    # else
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-    # endif
-
-        return (ts.tv_sec * 1000000) + (ts.tv_nsec / 1000);
-    #endif
-    }
-
     void run() override
     {
         const uint32_t bufferSize = pData->bufferSize;
         const int64_t cycleTime = static_cast<int64_t>(
             static_cast<double>(bufferSize) / pData->sampleRate * 1000000 + 0.5);
 
-        carla_stdout("CarlaEngineDummy audio thread started, cycle time: " P_INT64 "ms", cycleTime / 1000);
+        int delay = 0;
+        if (const char* const delaystr = std::getenv("CARLA_BRIDGE_DUMMY"))
+            if ((delay = atoi(delaystr)) == 1)
+                delay = 0;
+
+        carla_stdout("CarlaEngineDummy audio thread started, cycle time: " P_INT64 "ms, delay %ds",
+                     cycleTime / 1000, delay);
 
         float* audioIns[2] = {
             (float*)std::malloc(sizeof(float)*bufferSize),
@@ -236,7 +226,10 @@ protected:
 
         while (! shouldThreadExit())
         {
-            oldTime = getTimeInMicroseconds();
+            if (delay > 0)
+                carla_sleep(static_cast<uint>(delay));
+
+            oldTime = carla_gettime_us();
 
             const PendingRtEventsRunner prt(this, bufferSize, true);
 
@@ -246,7 +239,7 @@ protected:
 
             pData->graph.process(pData, audioIns, audioOuts, bufferSize);
 
-            newTime = getTimeInMicroseconds();
+            newTime = carla_gettime_us();
             CARLA_SAFE_ASSERT_CONTINUE(newTime >= oldTime);
 
             const int64_t remainingTime = cycleTime - (newTime - oldTime);
@@ -257,7 +250,7 @@ protected:
                 carla_stdout("XRUN! remaining time: " P_INT64 ", old: " P_INT64 ", new: " P_INT64 ")",
                              remainingTime, oldTime, newTime);
             }
-            else
+            else if (remainingTime >= 1000)
             {
                 CARLA_SAFE_ASSERT_CONTINUE(remainingTime < 1000000); // 1 sec
                 carla_msleep(static_cast<uint>(remainingTime / 1000));

@@ -1,6 +1,6 @@
 /*
  * Carla Pipe Utilities
- * Copyright (C) 2013-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2013-2024 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -18,6 +18,7 @@
 #include "CarlaPipeUtils.hpp"
 #include "CarlaProcessUtils.hpp"
 #include "CarlaString.hpp"
+#include "CarlaTimeUtils.hpp"
 #include "CarlaMIDI.h"
 
 // needed for atom-util
@@ -29,15 +30,13 @@
 #ifdef BUILDING_CARLA
 # include "lv2/atom-util.h"
 #else
-# include "lv2/lv2plug.in/ns/ext/atom/util.h"
+# include "lv2/atom/util.h"
 #endif
 
 #include <fcntl.h>
 
-#include "water/misc/Time.h"
-#include "water/text/String.h"
-
 #ifdef CARLA_OS_WIN
+# include "water/text/String.h"
 # include <ctime>
 #else
 # include <cerrno>
@@ -118,7 +117,7 @@ bool waitForAsyncObject(const HANDLE object, const HANDLE process = INVALID_HAND
 }
 
 static inline
-ssize_t ReadFileWin32(const HANDLE pipeh, const HANDLE event, void* const buf, const std::size_t numBytes)
+ssize_t ReadFileWin32(const HANDLE pipeh, const HANDLE event, void* const buf, const DWORD numBytes)
 {
     DWORD dw, dsize = numBytes;
     DWORD available = 0;
@@ -165,7 +164,7 @@ ssize_t ReadFileWin32(const HANDLE pipeh, const HANDLE event, void* const buf, c
 }
 
 static inline
-ssize_t WriteFileWin32(const HANDLE pipeh, const HANDLE event, const void* const buf, const std::size_t numBytes)
+ssize_t WriteFileWin32(const HANDLE pipeh, const HANDLE event, const void* const buf, const DWORD numBytes)
 {
     DWORD dw, dsize = numBytes;
 
@@ -241,7 +240,7 @@ bool startProcess(const char* const argv[], PROCESS_INFORMATION* const processIn
 
     command = command.trim();
 
-    STARTUPINFO startupInfo;
+    STARTUPINFOA startupInfo;
     carla_zeroStruct(startupInfo);
     startupInfo.cb = sizeof(startupInfo);
 
@@ -266,7 +265,7 @@ bool waitForClientConnect(const HANDLE pipe, const HANDLE event, const HANDLE pr
     carla_zeroStruct(ov);
     ov.hEvent = event;
 
-    const uint32_t timeoutEnd(water::Time::getMillisecondCounter() + timeOutMilliseconds);
+    const uint32_t timeoutEnd = carla_gettime_ms() + timeOutMilliseconds;
 
     for (;;)
     {
@@ -304,7 +303,7 @@ bool waitForClientConnect(const HANDLE pipe, const HANDLE event, const HANDLE pr
             return true;
 
         case ERROR_PIPE_LISTENING:
-            if (water::Time::getMillisecondCounter() < timeoutEnd)
+            if (carla_gettime_ms() < timeoutEnd)
             {
                 carla_msleep(5);
                 continue;
@@ -327,7 +326,14 @@ bool startProcess(const char* const argv[], pid_t& pidinst) noexcept
     const CarlaScopedEnvVar sev1("LD_LIBRARY_PATH", nullptr);
     const CarlaScopedEnvVar sev2("LD_PRELOAD", nullptr);
 
+  #ifdef __clang__
+   #pragma clang diagnostic push
+   #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  #endif
     const pid_t ret = pidinst = vfork();
+  #ifdef __clang__
+   #pragma clang diagnostic pop
+  #endif
 
     switch (ret)
     {
@@ -362,7 +368,7 @@ bool waitForClientFirstMessage(const P& pipe, void* const ovRecv, void* const pr
 
     char c;
     ssize_t ret;
-    const uint32_t timeoutEnd(water::Time::getMillisecondCounter() + timeOutMilliseconds);
+    const uint32_t timeoutEnd = carla_gettime_ms() + timeOutMilliseconds;
 
 #ifdef CARLA_OS_WIN
     if (! waitForClientConnect(pipe, (HANDLE)ovRecv, (HANDLE)process, timeOutMilliseconds))
@@ -395,7 +401,7 @@ bool waitForClientFirstMessage(const P& pipe, void* const ovRecv, void* const pr
             if (errno == EAGAIN)
 #endif
             {
-                if (water::Time::getMillisecondCounter() < timeoutEnd)
+                if (carla_gettime_ms() < timeoutEnd)
                 {
                     carla_msleep(5);
                     continue;
@@ -433,7 +439,7 @@ bool waitForProcessToStop(const HANDLE process, const uint32_t timeOutMillisecon
     CARLA_SAFE_ASSERT_RETURN(process != INVALID_HANDLE_VALUE, false);
     CARLA_SAFE_ASSERT_RETURN(timeOutMilliseconds > 0, false);
 
-    const uint32_t timeoutEnd(water::Time::getMillisecondCounter() + timeOutMilliseconds);
+    const uint32_t timeoutEnd = carla_gettime_ms() + timeOutMilliseconds;
 
     for (;;)
     {
@@ -450,7 +456,7 @@ bool waitForProcessToStop(const HANDLE process, const uint32_t timeOutMillisecon
             ::TerminateProcess(process, 15);
         }
 
-        if (water::Time::getMillisecondCounter() >= timeoutEnd)
+        if (carla_gettime_ms() >= timeoutEnd)
             break;
 
         carla_msleep(5);
@@ -484,7 +490,7 @@ bool waitForChildToStop(const pid_t pid, const uint32_t timeOutMilliseconds, boo
     CARLA_SAFE_ASSERT_RETURN(timeOutMilliseconds > 0, false);
 
     pid_t ret;
-    const uint32_t timeoutEnd(water::Time::getMillisecondCounter() + timeOutMilliseconds);
+    const uint32_t timeoutEnd = carla_gettime_ms() + timeOutMilliseconds;
 
     for (;;)
     {
@@ -514,7 +520,7 @@ bool waitForChildToStop(const pid_t pid, const uint32_t timeOutMilliseconds, boo
                 sendTerminate = false;
                 ::kill(pid, SIGTERM);
             }
-            if (water::Time::getMillisecondCounter() < timeoutEnd)
+            if (carla_gettime_ms() < timeoutEnd)
             {
                 carla_msleep(5);
                 continue;
@@ -632,7 +638,7 @@ struct CarlaPipeCommon::PrivateData {
         carla_zeroChars(tmpBuf, 0xffff);
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(PrivateData)
+    CARLA_DECLARE_NON_COPYABLE(PrivateData)
 };
 
 // -----------------------------------------------------------------------
@@ -686,7 +692,7 @@ void CarlaPipeCommon::idlePipe(const bool onlyOnce) noexcept
 
         pData->isReading = false;
 
-        delete[] msg;
+        std::free(const_cast<char*>(msg));
 
         if (onlyOnce || pData->pipeRecv == INVALID_PIPE_VALUE)
             break;
@@ -863,6 +869,13 @@ bool CarlaPipeCommon::readNextLineAsString(const char*& value, const bool alloca
     return false;
 }
 
+char* CarlaPipeCommon::readNextLineAsString() const noexcept
+{
+    CARLA_SAFE_ASSERT_RETURN(pData->isReading, nullptr);
+
+    return const_cast<char*>(_readlineblock(true, 0));
+}
+
 // -------------------------------------------------------------------
 // must be locked before calling
 
@@ -901,7 +914,8 @@ bool CarlaPipeCommon::writeAndFixMessage(const char* const msg) const noexcept
 
     const std::size_t size(std::strlen(msg));
 
-    char fixedMsg[size+2];
+    char* const fixedMsg = static_cast<char*>(std::malloc(size+2));
+    CARLA_SAFE_ASSERT_RETURN(fixedMsg != nullptr, false);
 
     if (size > 0)
     {
@@ -931,7 +945,9 @@ bool CarlaPipeCommon::writeAndFixMessage(const char* const msg) const noexcept
         fixedMsg[1] = '\0';
     }
 
-    return _writeMsgBuffer(fixedMsg, size+1);
+    const bool ret = _writeMsgBuffer(fixedMsg, size+1);
+    std::free(fixedMsg);
+    return ret;
 }
 
 bool CarlaPipeCommon::writeEmptyMessage() const noexcept
@@ -942,7 +958,7 @@ bool CarlaPipeCommon::writeEmptyMessage() const noexcept
     return _writeMsgBuffer("\n", 1);
 }
 
-bool CarlaPipeCommon::flushMessages() const noexcept
+bool CarlaPipeCommon::syncMessages() const noexcept
 {
     CARLA_SAFE_ASSERT_RETURN(pData->pipeSend != INVALID_PIPE_VALUE, false);
 
@@ -974,7 +990,7 @@ bool CarlaPipeCommon::writeErrorMessage(const char* const error) const noexcept
     if (! writeAndFixMessage(error))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1004,7 +1020,7 @@ bool CarlaPipeCommon::writeControlMessage(const uint32_t index, const float valu
     if (! _writeMsgBuffer(tmpBuf, std::strlen(tmpBuf)))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1022,7 +1038,7 @@ bool CarlaPipeCommon::writeConfigureMessage(const char* const key, const char* c
     if (! writeAndFixMessage(value))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1040,7 +1056,7 @@ bool CarlaPipeCommon::writeProgramMessage(const uint32_t index) const noexcept
     if (! _writeMsgBuffer(tmpBuf, std::strlen(tmpBuf)))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1066,7 +1082,7 @@ bool CarlaPipeCommon::writeProgramMessage(const uint8_t channel, const uint32_t 
     if (! _writeMsgBuffer(tmpBuf, std::strlen(tmpBuf)))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1088,7 +1104,7 @@ bool CarlaPipeCommon::writeMidiProgramMessage(const uint32_t bank, const uint32_
     if (! _writeMsgBuffer(tmpBuf, std::strlen(tmpBuf)))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1106,7 +1122,7 @@ bool CarlaPipeCommon::writeReloadProgramsMessage(const int32_t index) const noex
     if (! _writeMsgBuffer(tmpBuf, std::strlen(tmpBuf)))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1140,7 +1156,7 @@ bool CarlaPipeCommon::writeMidiNoteMessage(const bool onOff, const uint8_t chann
     if (! _writeMsgBuffer(tmpBuf, std::strlen(tmpBuf)))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1174,7 +1190,7 @@ bool CarlaPipeCommon::writeLv2AtomMessage(const uint32_t index, const LV2_Atom* 
     if (! writeAndFixMessage(base64atom.buffer()))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1203,7 +1219,7 @@ bool CarlaPipeCommon::writeLv2ParameterMessage(const char* const uri, const floa
     if (! _writeMsgBuffer(tmpBuf, std::strlen(tmpBuf)))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1231,7 +1247,7 @@ bool CarlaPipeCommon::writeLv2UridMessage(const uint32_t urid, const char* const
     if (! writeAndFixMessage(uri))
         return false;
 
-    flushMessages();
+    syncMessages();
     return true;
 }
 
@@ -1361,7 +1377,7 @@ const char* CarlaPipeCommon::_readlineblock(const bool allocReturn,
                                             const uint16_t size,
                                             const uint32_t timeOutMilliseconds) const noexcept
 {
-    const uint32_t timeoutEnd = water::Time::getMillisecondCounter() + timeOutMilliseconds;
+    const uint32_t timeoutEnd = carla_gettime_ms() + timeOutMilliseconds;
     bool readSucess;
 
     for (;;)
@@ -1372,7 +1388,7 @@ const char* CarlaPipeCommon::_readlineblock(const bool allocReturn,
         if (readSucess)
             return msg;
 
-        if (water::Time::getMillisecondCounter() >= timeoutEnd)
+        if (carla_gettime_ms() >= timeoutEnd)
             break;
 
         carla_msleep(5);
@@ -1382,7 +1398,7 @@ const char* CarlaPipeCommon::_readlineblock(const bool allocReturn,
 
     if (testingForValgrind)
     {
-        const uint32_t timeoutEnd2 = water::Time::getMillisecondCounter() + 1000;
+        const uint32_t timeoutEnd2 = carla_gettime_ms() + 1000;
 
         for (;;)
         {
@@ -1392,7 +1408,7 @@ const char* CarlaPipeCommon::_readlineblock(const bool allocReturn,
             if (readSucess)
                 return msg;
 
-            if (water::Time::getMillisecondCounter() >= timeoutEnd2)
+            if (carla_gettime_ms() >= timeoutEnd2)
                 break;
 
             carla_msleep(100);
@@ -1417,20 +1433,20 @@ bool CarlaPipeCommon::_writeMsgBuffer(const char* const msg, const std::size_t s
     ssize_t ret;
 
     try {
-#ifdef CARLA_OS_WIN
-        ret = WriteFileWin32(pData->pipeSend, pData->ovSend, msg, size);
-#else
+       #ifdef CARLA_OS_WIN
+        ret = WriteFileWin32(pData->pipeSend, pData->ovSend, msg, static_cast<DWORD>(size));
+       #else
         ret = ::write(pData->pipeSend, msg, size);
-#endif
+       #endif
     } CARLA_SAFE_EXCEPTION_RETURN("CarlaPipeCommon::writeMsgBuffer", false);
 
-#ifdef CARLA_OS_WIN
+   #ifdef CARLA_OS_WIN
     if (ret == -2)
     {
         pData->pipeClosed = true;
         return false;
     }
-#endif
+   #endif
 
     if (ret == static_cast<ssize_t>(size))
     {
@@ -1477,10 +1493,12 @@ uintptr_t CarlaPipeServer::getPID() const noexcept
 
 // --------------------------------------------------------------------------------------------------------------------
 
-bool CarlaPipeServer::startPipeServer(const char* const filename,
+bool CarlaPipeServer::startPipeServer(const char* const helperTool,
+                                      const char* const filename,
                                       const char* const arg1,
                                       const char* const arg2,
-                                      const int size) noexcept
+                                      const int size,
+                                      int timeOutMilliseconds) noexcept
 {
     CARLA_SAFE_ASSERT_RETURN(pData->pipeRecv == INVALID_PIPE_VALUE, false);
     CARLA_SAFE_ASSERT_RETURN(pData->pipeSend == INVALID_PIPE_VALUE, false);
@@ -1494,6 +1512,9 @@ bool CarlaPipeServer::startPipeServer(const char* const filename,
     CARLA_SAFE_ASSERT_RETURN(arg1 != nullptr, false);
     CARLA_SAFE_ASSERT_RETURN(arg2 != nullptr, false);
     carla_debug("CarlaPipeServer::startPipeServer(\"%s\", \"%s\", \"%s\")", filename, arg1, arg2);
+
+    if (timeOutMilliseconds < 0)
+        timeOutMilliseconds = 10 * 1000;
 
     char pipeRecvServerStr[100+1];
     char pipeSendServerStr[100+1];
@@ -1625,31 +1646,30 @@ bool CarlaPipeServer::startPipeServer(const char* const filename,
     //-----------------------------------------------------------------------------------------------------------------
     // set arguments
 
-    const char* argv[8];
+    const char* argv[9] = {};
+    int i = 0;
+
+    if (helperTool != nullptr)
+        argv[i++] = helperTool;
 
     //-----------------------------------------------------------------------------------------------------------------
     // argv[0] => filename
 
-    argv[0] = filename;
+    argv[i++] = filename;
 
     //-----------------------------------------------------------------------------------------------------------------
     // argv[1-2] => args
 
-    argv[1] = arg1;
-    argv[2] = arg2;
+    argv[i++] = arg1;
+    argv[i++] = arg2;
 
     //-----------------------------------------------------------------------------------------------------------------
     // argv[3-6] => pipes
 
-    argv[3] = pipeRecvServerStr;
-    argv[4] = pipeSendServerStr;
-    argv[5] = pipeRecvClientStr;
-    argv[6] = pipeSendClientStr;
-
-    //-----------------------------------------------------------------------------------------------------------------
-    // argv[7] => null
-
-    argv[7] = nullptr;
+    argv[i++] = pipeRecvServerStr;
+    argv[i++] = pipeSendServerStr;
+    argv[i++] = pipeRecvClientStr;
+    argv[i++] = pipeSendClientStr;
 
     //-----------------------------------------------------------------------------------------------------------------
     // start process
@@ -1698,12 +1718,12 @@ bool CarlaPipeServer::startPipeServer(const char* const filename,
     void* const process = nullptr;
 #endif
 
-    if (waitForClientFirstMessage(pipeRecvClient, ovRecv, process, 10*1000 /* 10 secs */))
+    if (waitForClientFirstMessage(pipeRecvClient, ovRecv, process, timeOutMilliseconds))
     {
         pData->pipeRecv = pipeRecvClient;
         pData->pipeSend = pipeSendClient;
         pData->pipeClosed = false;
-        carla_stdout("ALL OK!");
+        carla_debug("ALL OK!");
         return true;
     }
 
@@ -1749,6 +1769,15 @@ bool CarlaPipeServer::startPipeServer(const char* const filename,
     (void)size; (void)ovRecv; (void)process;
 }
 
+bool CarlaPipeServer::startPipeServer(const char* const filename,
+                                      const char* const arg1,
+                                      const char* const arg2,
+                                      const int size,
+                                      const int timeOutMilliseconds) noexcept
+{
+    return startPipeServer(nullptr, filename, arg1, arg2, size, timeOutMilliseconds);
+}
+
 void CarlaPipeServer::stopPipeServer(const uint32_t timeOutMilliseconds) noexcept
 {
     carla_debug("CarlaPipeServer::stopPipeServer(%i)", timeOutMilliseconds);
@@ -1761,7 +1790,7 @@ void CarlaPipeServer::stopPipeServer(const uint32_t timeOutMilliseconds) noexcep
         if (pData->pipeSend != INVALID_PIPE_VALUE && ! pData->pipeClosed)
         {
             if (_writeMsgBuffer("__carla-quit__\n", 15))
-                flushMessages();
+                syncMessages();
         }
 
         waitForProcessToStopOrKillIt(pData->processInfo.hProcess, timeOutMilliseconds);
@@ -1779,7 +1808,7 @@ void CarlaPipeServer::stopPipeServer(const uint32_t timeOutMilliseconds) noexcep
         if (pData->pipeSend != INVALID_PIPE_VALUE && ! pData->pipeClosed)
         {
             if (_writeMsgBuffer("__carla-quit__\n", 15))
-                flushMessages();
+                syncMessages();
         }
 
         waitForChildToStopOrKillIt(pData->pid, timeOutMilliseconds);
@@ -1830,7 +1859,7 @@ void CarlaPipeServer::writeShowMessage() const noexcept
     if (! _writeMsgBuffer("show\n", 5))
         return;
 
-    flushMessages();
+    syncMessages();
 }
 
 void CarlaPipeServer::writeFocusMessage() const noexcept
@@ -1840,7 +1869,7 @@ void CarlaPipeServer::writeFocusMessage() const noexcept
     if (! _writeMsgBuffer("focus\n", 6))
         return;
 
-    flushMessages();
+    syncMessages();
 }
 
 void CarlaPipeServer::writeHideMessage() const noexcept
@@ -1850,7 +1879,7 @@ void CarlaPipeServer::writeHideMessage() const noexcept
     if (! _writeMsgBuffer("show\n", 5))
         return;
 
-    flushMessages();
+    syncMessages();
 }
 
 // -----------------------------------------------------------------------
@@ -1920,7 +1949,7 @@ bool CarlaPipeClient::initPipeClient(const char* argv[]) noexcept
     pData->clientClosingDown = false;
 
     if (writeMessage("\n", 1))
-        flushMessages();
+        syncMessages();
 
     return true;
 }
@@ -1960,7 +1989,7 @@ void CarlaPipeClient::writeExitingMessageAndWait() noexcept
         const CarlaMutexLocker cml(pData->writeLock);
 
         if (_writeMsgBuffer("exiting\n", 8))
-            flushMessages();
+            syncMessages();
     }
 
     // NOTE: no more messages are handled after this point

@@ -1,19 +1,5 @@
-﻿/*
- * Carla Plugin Host
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+﻿// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef CARLA_PLUGIN_HPP_INCLUDED
 #define CARLA_PLUGIN_HPP_INCLUDED
@@ -24,7 +10,6 @@
 // -----------------------------------------------------------------------
 // Avoid including extra libs here
 
-typedef void* lo_message;
 typedef struct _NativePluginDescriptor NativePluginDescriptor;
 struct LADSPA_RDF_Descriptor;
 
@@ -32,8 +17,10 @@ struct LADSPA_RDF_Descriptor;
 
 CARLA_BACKEND_START_NAMESPACE
 
-#if 0
-} /* Fix editor indentation */
+#ifdef _MSC_VER
+# define CARLA_PLUGIN_WARN_UNUSED_RESULT
+#else
+# define CARLA_PLUGIN_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
 #endif
 
 // -----------------------------------------------------------------------
@@ -238,6 +225,11 @@ public:
     int32_t getCurrentMidiProgram() const noexcept;
 
     /*!
+     * Get hints about an audio port.
+     */
+    virtual uint getAudioPortHints(bool isOutput, uint32_t portIndex) const noexcept;
+
+    /*!
      * Get the parameter data of @a parameterId.
      */
     const ParameterData& getParameterData(uint32_t parameterId) const noexcept;
@@ -299,19 +291,19 @@ public:
     /*!
      * Get the plugin's label (URI for LV2 plugins).
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getLabel(char* strBuf) const noexcept;
 
     /*!
      * Get the plugin's maker.
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getMaker(char* strBuf) const noexcept;
 
     /*!
      * Get the plugin's copyright/license.
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getCopyright(char* strBuf) const noexcept;
 
     /*!
@@ -319,51 +311,51 @@ public:
      *
      * @see getName() and setName()
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getRealName(char* strBuf) const noexcept;
 
     /*!
      * Get the name of the parameter @a parameterId.
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getParameterName(uint32_t parameterId, char* strBuf) const noexcept;
 
     /*!
      * Get the symbol of the parameter @a parameterId.
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getParameterSymbol(uint32_t parameterId, char* strBuf) const noexcept;
 
     /*!
      * Get the custom text of the parameter @a parameterId.
      * @see PARAMETER_USES_CUSTOM_TEXT
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getParameterText(uint32_t parameterId, char* strBuf) noexcept;
 
     /*!
      * Get the unit of the parameter @a parameterId.
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getParameterUnit(uint32_t parameterId, char* strBuf) const noexcept;
 
     /*!
      * Get the comment (documentation) of the parameter @a parameterId.
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getParameterComment(uint32_t parameterId, char* strBuf) const noexcept;
 
     /*!
      * Get the group name of the parameter @a parameterId.
      * @note The group name is prefixed by a unique symbol and ":".
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getParameterGroupName(uint32_t parameterId, char* strBuf) const noexcept;
 
     /*!
      * Get the scalepoint @a scalePointId label of the parameter @a parameterId.
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     virtual bool getParameterScalePointLabel(uint32_t parameterId, uint32_t scalePointId, char* strBuf) const noexcept;
 
     /*!
@@ -376,7 +368,7 @@ public:
     /*!
      * Get the name of the program at @a index.
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     bool getProgramName(uint32_t index, char* strBuf) const noexcept;
 
     /*!
@@ -384,7 +376,7 @@ public:
      *
      * @see getMidiProgramInfo()
      */
-    __attribute__((warn_unused_result))
+    CARLA_PLUGIN_WARN_UNUSED_RESULT
     bool getMidiProgramName(uint32_t index, char* strBuf) const noexcept;
 
     /*!
@@ -446,10 +438,12 @@ public:
      */
     bool loadStateFromFile(const char* filename);
 
+   #ifndef CARLA_PLUGIN_ONLY_BRIDGE
     /*!
-     * Export this plugin as LV2.
+     * Export this plugin as its own LV2 plugin, using a carla wrapper around it for the LV2 functionality.
      */
     bool exportAsLV2(const char* lv2path);
+   #endif
 
     // -------------------------------------------------------------------
     // Set data (internal stuff)
@@ -581,7 +575,7 @@ public:
     /*!
      * Overloaded function, to be called from within RT context only.
      */
-    virtual void setParameterValueRT(uint32_t parameterId, float value, bool sendCallbackLater) noexcept;
+    virtual void setParameterValueRT(uint32_t parameterId, float value, uint32_t frameOffset, bool sendCallbackLater) noexcept;
 
     /*!
      * Set a plugin's parameter value, including internal parameters.
@@ -769,7 +763,7 @@ public:
                                   int argc,
                                   const void* argv,
                                   const char* types,
-                                  lo_message msg);
+                                  void* msg);
 
     // -------------------------------------------------------------------
     // MIDI events
@@ -962,10 +956,12 @@ public:
         const uint options; // see PluginOptions
     };
 
-    static CarlaPluginPtr newNative(const Initializer& init);
     static CarlaPluginPtr newBridge(const Initializer& init,
                                     BinaryType btype, PluginType ptype,
                                     const char* binaryArchName, const char* bridgeBinary);
+
+   #ifndef CARLA_PLUGIN_ONLY_BRIDGE
+    static CarlaPluginPtr newNative(const Initializer& init);
 
     static CarlaPluginPtr newLADSPA(const Initializer& init, const LADSPA_RDF_Descriptor* rdfDescriptor);
     static CarlaPluginPtr newDSSI(const Initializer& init);
@@ -973,12 +969,14 @@ public:
     static CarlaPluginPtr newVST2(const Initializer& init);
     static CarlaPluginPtr newVST3(const Initializer& init);
     static CarlaPluginPtr newAU(const Initializer& init);
+    static CarlaPluginPtr newJSFX(const Initializer& init);
+    static CarlaPluginPtr newCLAP(const Initializer& init);
 
-    static CarlaPluginPtr newJuce(const Initializer& init, const char* format);
     static CarlaPluginPtr newFluidSynth(const Initializer& init, PluginType ptype, bool use16Outs);
     static CarlaPluginPtr newSFZero(const Initializer& init);
 
     static CarlaPluginPtr newJackApp(const Initializer& init);
+   #endif
 #endif
 
     // -------------------------------------------------------------------
@@ -1034,7 +1032,7 @@ protected:
         bool fWasEnabled;
 
         CARLA_PREVENT_HEAP_ALLOCATION
-        CARLA_DECLARE_NON_COPY_CLASS(ScopedDisabler)
+        CARLA_DECLARE_NON_COPYABLE(ScopedDisabler)
     };
 
     /*!
@@ -1053,12 +1051,12 @@ protected:
         const bool fBlock;
 
         CARLA_PREVENT_HEAP_ALLOCATION
-        CARLA_DECLARE_NON_COPY_CLASS(ScopedSingleProcessLocker)
+        CARLA_DECLARE_NON_COPYABLE(ScopedSingleProcessLocker)
     };
 
     friend class CarlaEngine;
     friend class CarlaEngineBridge;
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaPlugin)
+    CARLA_DECLARE_NON_COPYABLE(CarlaPlugin)
 };
 
 /**@}*/

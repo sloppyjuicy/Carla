@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017-2018 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -55,10 +55,6 @@ public:
 
     /** Creates a copy of another string. */
     String (const String& other) noexcept;
-
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    String (String&& other) noexcept;
-   #endif
 
     /** Creates a string from a zero-terminated ascii text string.
 
@@ -117,9 +113,6 @@ public:
     /** Destructor. */
     ~String() noexcept;
 
-    /** This is the character encoding type used internally to store the string. */
-    typedef CharPointer_UTF8 CharPointerType;
-
     //==============================================================================
     /** Generates a probably-unique 32-bit hashcode from this string. */
     int hashCode() const noexcept;
@@ -138,10 +131,6 @@ public:
 
     /** Replaces this string's contents with another string. */
     String& operator= (const String& other) noexcept;
-
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    String& operator= (String&& other) noexcept;
-   #endif
 
     /** Appends another string at the end of this one. */
     String& operator+= (const String& stringToAppend);
@@ -174,8 +163,8 @@ public:
         @param startOfTextToAppend  the start of the string to add. This must not be a nullptr
         @param endOfTextToAppend    the end of the string to add. This must not be a nullptr
     */
-    void appendCharPointer (const CharPointerType startOfTextToAppend,
-                            const CharPointerType endOfTextToAppend);
+    void appendCharPointer (const CharPointer_UTF8 startOfTextToAppend,
+                            const CharPointer_UTF8 endOfTextToAppend);
 
     /** Appends a string to the end of this one.
 
@@ -191,20 +180,20 @@ public:
         size_t extraBytesNeeded = 0, numChars = 1;
 
         for (CharPointer t (startOfTextToAppend); t != endOfTextToAppend && ! t.isEmpty(); ++numChars)
-            extraBytesNeeded += CharPointerType::getBytesRequiredFor (t.getAndAdvance());
+            extraBytesNeeded += CharPointer_UTF8::getBytesRequiredFor (t.getAndAdvance());
 
         if (extraBytesNeeded > 0)
         {
             const size_t byteOffsetOfNull = getByteOffsetOfEnd();
 
             preallocateBytes (byteOffsetOfNull + extraBytesNeeded);
-            CharPointerType (addBytesToPointer (text.getAddress(), (int) byteOffsetOfNull))
+            CharPointer_UTF8 (addBytesToPointer (text.getAddress(), (int) byteOffsetOfNull))
                 .writeWithCharLimit (startOfTextToAppend, (int) numChars);
         }
     }
 
     /** Appends a string to the end of this one. */
-    void appendCharPointer (const CharPointerType textToAppend);
+    void appendCharPointer (const CharPointer_UTF8 textToAppend);
 
     /** Appends a string to the end of this one.
 
@@ -219,14 +208,14 @@ public:
             size_t extraBytesNeeded = 0, numChars = 1;
 
             for (CharPointer t (textToAppend); numChars <= maxCharsToTake && ! t.isEmpty(); ++numChars)
-                extraBytesNeeded += CharPointerType::getBytesRequiredFor (t.getAndAdvance());
+                extraBytesNeeded += CharPointer_UTF8::getBytesRequiredFor (t.getAndAdvance());
 
             if (extraBytesNeeded > 0)
             {
                 const size_t byteOffsetOfNull = getByteOffsetOfEnd();
 
                 preallocateBytes (byteOffsetOfNull + extraBytesNeeded);
-                CharPointerType (addBytesToPointer (text.getAddress(), (int) byteOffsetOfNull))
+                CharPointer_UTF8 (addBytesToPointer (text.getAddress(), (int) byteOffsetOfNull))
                     .writeWithCharLimit (textToAppend, (int) numChars);
             }
         }
@@ -990,7 +979,7 @@ public:
         that is returned must not be stored anywhere, as it can be deleted whenever the
         string changes.
     */
-    inline CharPointerType getCharPointer() const noexcept      { return text; }
+    inline CharPointer_UTF8 getCharPointer() const noexcept      { return text; }
 
     /** Returns a pointer to a UTF-8 version of this string.
 
@@ -1001,10 +990,15 @@ public:
         To find out how many bytes you need to store this string as UTF-8, you can call
         CharPointer_UTF8::getBytesRequiredFor (myString.getCharPointer())
 
-        @see toRawUTF8, getCharPointer, toUTF16, toUTF32
+        @see toRawUTF8, getCharPointer, toUTF16
     */
     CharPointer_UTF8 toUTF8() const;
 
+   #ifdef CARLA_OS_WIN
+    /** Convert string to UTF-16, Windows only */
+    std::wstring toUTF16() const;
+   #endif
+
     /** Returns a pointer to a UTF-8 version of this string.
 
         Because it returns a reference to the string's internal data, the pointer
@@ -1014,7 +1008,7 @@ public:
         To find out how many bytes you need to store this string as UTF-8, you can call
         CharPointer_UTF8::getBytesRequiredFor (myString.getCharPointer())
 
-        @see getCharPointer, toUTF8, toUTF16, toUTF32
+        @see getCharPointer, toUTF8, toUTF16
     */
     const char* toRawUTF8() const;
 
@@ -1098,7 +1092,7 @@ public:
 
 private:
     //==============================================================================
-    CharPointerType text;
+    CharPointer_UTF8 text;
 
     //==============================================================================
     struct PreallocationBytes
@@ -1198,9 +1192,9 @@ OutputStream& operator<< (OutputStream& stream, StringRef stringToWrite);
 
 //==============================================================================
 struct StartEndString {
-    StartEndString (String::CharPointerType s, String::CharPointerType e) noexcept : start (s), end (e) {}
+    StartEndString (CharPointer_UTF8 s, CharPointer_UTF8 e) noexcept : start (s), end (e) {}
     operator String() const   { return String (start, end); }
-    String::CharPointerType start, end;
+    CharPointer_UTF8 start, end;
 };
 
 }

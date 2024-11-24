@@ -1,19 +1,5 @@
-﻿/*
- * Carla Plugin
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+﻿// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "CarlaPluginInternal.hpp"
 #include "CarlaEngine.hpp"
@@ -75,7 +61,7 @@ struct ParamSymbol {
 
 #ifdef CARLA_PROPER_CPP11_SUPPORT
     ParamSymbol() = delete;
-    CARLA_DECLARE_NON_COPY_STRUCT(ParamSymbol)
+    CARLA_DECLARE_NON_COPYABLE(ParamSymbol)
 #endif
 };
 
@@ -240,6 +226,11 @@ int32_t CarlaPlugin::getCurrentProgram() const noexcept
 int32_t CarlaPlugin::getCurrentMidiProgram() const noexcept
 {
     return pData->midiprog.current;
+}
+
+uint CarlaPlugin::getAudioPortHints(bool, uint32_t) const noexcept
+{
+    return 0x0;
 }
 
 const ParameterData& CarlaPlugin::getParameterData(const uint32_t parameterId) const noexcept
@@ -516,7 +507,7 @@ const CarlaStateSave& CarlaPlugin::getStateSave(const bool callPrepareForSave)
         prepareForSave(true);
     }
 
-    const PluginType pluginType(getType());
+    const PluginType pluginType = getType();
 
     char strBuf[STR_MAX+1];
     carla_zeroChars(strBuf, STR_MAX+1);
@@ -531,14 +522,14 @@ const CarlaStateSave& CarlaPlugin::getStateSave(const bool callPrepareForSave)
     pData->stateSave.name     = carla_strdup(pData->name);
     pData->stateSave.label    = carla_strdup(strBuf);
     pData->stateSave.uniqueId = getUniqueId();
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+// #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     pData->stateSave.options  = pData->options;
-#endif
+// #endif
 
     if (pData->filename != nullptr)
         pData->stateSave.binary = carla_strdup(pData->filename);
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+   #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     // ---------------------------------------------------------------
     // Internals
 
@@ -549,7 +540,7 @@ const CarlaStateSave& CarlaPlugin::getStateSave(const bool callPrepareForSave)
     pData->stateSave.balanceRight = pData->postProc.balanceRight;
     pData->stateSave.panning      = pData->postProc.panning;
     pData->stateSave.ctrlChannel  = pData->ctrlChannel;
-#endif
+   #endif
 
     if (pData->hints & PLUGIN_IS_BRIDGE)
         waitForBridgeSaveSignal();
@@ -562,13 +553,13 @@ const CarlaStateSave& CarlaPlugin::getStateSave(const bool callPrepareForSave)
     if (pData->options & PLUGIN_OPTION_USE_CHUNKS)
     {
         void* data = nullptr;
-        const std::size_t dataSize(getChunkData(&data));
+        const std::size_t dataSize = getChunkData(&data);
 
         if (data != nullptr && dataSize > 0)
         {
             pData->stateSave.chunk = CarlaString::asBase64(data, dataSize).dup();
 
-            if (pluginType != PLUGIN_INTERNAL)
+            if (pluginType != PLUGIN_INTERNAL && pluginType != PLUGIN_JSFX)
                 usingChunk = true;
         }
     }
@@ -596,7 +587,7 @@ const CarlaStateSave& CarlaPlugin::getStateSave(const bool callPrepareForSave)
     // ---------------------------------------------------------------
     // Parameters
 
-    const float sampleRate(static_cast<float>(pData->engine->getSampleRate()));
+    const float sampleRate = static_cast<float>(pData->engine->getSampleRate());
 
     for (uint32_t i=0; i < pData->param.count; ++i)
     {
@@ -616,7 +607,7 @@ const CarlaStateSave& CarlaPlugin::getStateSave(const bool callPrepareForSave)
 
         stateParameter->dummy = dummy;
         stateParameter->index = paramData.index;
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+       #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
         if (paramData.mappedControlIndex != CONTROL_INDEX_MIDI_LEARN)
         {
             stateParameter->mappedControlIndex = paramData.mappedControlIndex;
@@ -635,7 +626,7 @@ const CarlaStateSave& CarlaPlugin::getStateSave(const bool callPrepareForSave)
                 }
             }
         }
-#endif
+       #endif
 
         if (! getParameterName(i, strBuf))
             strBuf[0] = '\0';
@@ -678,8 +669,8 @@ const CarlaStateSave& CarlaPlugin::getStateSave(const bool callPrepareForSave)
 
 void CarlaPlugin::loadStateSave(const CarlaStateSave& stateSave)
 {
-    const bool usesMultiProgs(pData->hints & PLUGIN_USES_MULTI_PROGS);
-    const PluginType pluginType(getType());
+    const bool usesMultiProgs = pData->hints & PLUGIN_USES_MULTI_PROGS;
+    const PluginType pluginType = getType();
 
     char strBuf[STR_MAX+1];
     carla_zeroChars(strBuf, STR_MAX+1);
@@ -748,7 +739,7 @@ void CarlaPlugin::loadStateSave(const CarlaStateSave& stateSave)
 
     LinkedList<ParamSymbol*> paramSymbols;
 
-    if (pluginType == PLUGIN_LADSPA || pluginType == PLUGIN_LV2)
+    if (pluginType == PLUGIN_LADSPA || pluginType == PLUGIN_LV2 || pluginType == PLUGIN_CLAP)
     {
         for (uint32_t i=0; i < pData->param.count; ++i)
         {
@@ -766,7 +757,7 @@ void CarlaPlugin::loadStateSave(const CarlaStateSave& stateSave)
     // ---------------------------------------------------------------
     // Part 4b - set parameter values (carefully)
 
-    const float sampleRate(static_cast<float>(pData->engine->getSampleRate()));
+    const float sampleRate = static_cast<float>(pData->engine->getSampleRate());
 
     for (CarlaStateSave::ParameterItenerator it = stateSave.parameters.begin2(); it.valid(); it.next())
     {
@@ -800,7 +791,7 @@ void CarlaPlugin::loadStateSave(const CarlaStateSave& stateSave)
                 index = stateParameter->index;
             }
         }
-        else if (pluginType == PLUGIN_LV2)
+        else if (pluginType == PLUGIN_LV2 || pluginType == PLUGIN_CLAP)
         {
             // Symbol only
             if (stateParameter->symbol != nullptr && stateParameter->symbol[0] != '\0')
@@ -818,12 +809,21 @@ void CarlaPlugin::loadStateSave(const CarlaStateSave& stateSave)
                     }
                 }
                 if (index == -1)
-                    carla_stderr("Failed to find LV2 parameter symbol '%s' for '%s'",
-                                 stateParameter->symbol, pData->name);
+                {
+                    if (pluginType == PLUGIN_LV2)
+                        carla_stderr("Failed to find LV2 parameter symbol '%s' for '%s'",
+                                    stateParameter->symbol, pData->name);
+                    else
+                        carla_stderr("Failed to find CLAP parameter id '%s' for '%s'",
+                                    stateParameter->symbol, pData->name);
+                }
             }
             else
             {
-                carla_stderr("LV2 Plugin parameter '%s' has no symbol", stateParameter->name);
+                if (pluginType == PLUGIN_LV2)
+                    carla_stderr("LV2 Plugin parameter '%s' has no symbol", stateParameter->name);
+                else
+                    carla_stderr("CLAP Plugin parameter '%s' has no id", stateParameter->name);
             }
         }
         else
@@ -845,7 +845,7 @@ void CarlaPlugin::loadStateSave(const CarlaStateSave& stateSave)
                 setParameterValue(static_cast<uint32_t>(index), stateParameter->value, true, true, true);
             }
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+           #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
             if (stateParameter->mappedRangeValid)
             {
                 if (pData->param.data[index].hints & PARAMETER_USES_SAMPLERATE)
@@ -862,7 +862,7 @@ void CarlaPlugin::loadStateSave(const CarlaStateSave& stateSave)
             setParameterMappedControlIndex(static_cast<uint32_t>(index),
                                            stateParameter->mappedControlIndex, true, true, false);
             setParameterMidiChannel(static_cast<uint32_t>(index), stateParameter->midiChannel, true, true);
-#endif
+           #endif
         }
         else
             carla_stderr("Could not set parameter '%s' value for '%s'",
@@ -925,18 +925,18 @@ void CarlaPlugin::loadStateSave(const CarlaStateSave& stateSave)
     if (stateSave.chunk != nullptr && (pData->options & PLUGIN_OPTION_USE_CHUNKS) != 0)
     {
         std::vector<uint8_t> chunk(carla_getChunkFromBase64String(stateSave.chunk));
-#ifdef CARLA_PROPER_CPP11_SUPPORT
+       #ifdef CARLA_PROPER_CPP11_SUPPORT
         setChunkData(chunk.data(), chunk.size());
-#else
+       #else
         setChunkData(&chunk.front(), chunk.size());
-#endif
+       #endif
     }
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+   #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     // ---------------------------------------------------------------
     // Part 6 - set internal stuff
 
-    const uint availOptions(getOptionsAvailable());
+    const uint availOptions = getOptionsAvailable();
 
     for (uint i=0; i<10; ++i) // FIXME - get this value somehow...
     {
@@ -956,7 +956,7 @@ void CarlaPlugin::loadStateSave(const CarlaStateSave& stateSave)
 
     if (! pData->engine->isLoadingProject())
         pData->engine->callback(true, true, ENGINE_CALLBACK_UPDATE, pData->id, 0, 0, 0, 0.0f, nullptr);
-#endif
+   #endif
 }
 
 bool CarlaPlugin::saveStateToFile(const char* const filename)
@@ -973,8 +973,7 @@ bool CarlaPlugin::saveStateToFile(const char* const filename)
     out << streamState;
     out << "</CARLA-PRESET>\n";
 
-    const String jfilename = String(CharPointer_UTF8(filename));
-    File file(jfilename);
+    File file(filename);
 
     if (file.replaceWithData(out.getData(), out.getDataSize()))
         return true;
@@ -990,8 +989,7 @@ bool CarlaPlugin::loadStateFromFile(const char* const filename)
     CARLA_SAFE_ASSERT_RETURN(filename != nullptr && filename[0] != '\0', false);
     carla_debug("CarlaPlugin::loadStateFromFile(\"%s\")", filename);
 
-    const String jfilename = String(CharPointer_UTF8(filename));
-    File file(jfilename);
+    File file(filename);
     CARLA_SAFE_ASSERT_RETURN(file.existsAsFile(), false);
 
     XmlDocument xml(file);
@@ -1012,6 +1010,7 @@ bool CarlaPlugin::loadStateFromFile(const char* const filename)
     return false;
 }
 
+#ifndef CARLA_PLUGIN_ONLY_BRIDGE
 bool CarlaPlugin::exportAsLV2(const char* const lv2path)
 {
     CARLA_SAFE_ASSERT_RETURN(lv2path != nullptr && lv2path[0] != '\0', false);
@@ -1036,7 +1035,7 @@ bool CarlaPlugin::exportAsLV2(const char* const lv2path)
 
         if (res.failed())
         {
-            pData->engine->setLastError(res.getErrorMessage().toRawUTF8());
+            pData->engine->setLastError(res.getErrorMessage().c_str());
             return false;
         }
     }
@@ -1230,7 +1229,7 @@ bool CarlaPlugin::exportAsLV2(const char* const lv2path)
             if (paramData.hints & PARAMETER_IS_INTEGER)
                 mainStream << "        lv2:portProperty lv2:integer ;\n";
 
-            // TODO logarithmic, enabled (not on gui), automable, samplerate, scalepoints
+            // TODO logarithmic, enabled (not on gui), automatable, samplerate, scalepoints
 
             if (! getParameterName(i, strBufName))
                 strBufName[0] = '\0';
@@ -1329,6 +1328,7 @@ bool CarlaPlugin::exportAsLV2(const char* const lv2path)
 
     return true;
 }
+#endif
 
 // -------------------------------------------------------------------
 // Set data (internal stuff)
@@ -1667,7 +1667,7 @@ void CarlaPlugin::setParameterValue(const uint32_t parameterId, const float valu
                             nullptr);
 }
 
-void CarlaPlugin::setParameterValueRT(const uint32_t parameterId, const float value, const bool sendCallbackLater) noexcept
+void CarlaPlugin::setParameterValueRT(const uint32_t parameterId, const float value, uint32_t, const bool sendCallbackLater) noexcept
 {
     pData->postponeParameterChangeRtEvent(sendCallbackLater, static_cast<int32_t>(parameterId), value);
 }
@@ -2065,8 +2065,15 @@ void CarlaPlugin::deactivate() noexcept
     CARLA_SAFE_ASSERT(pData->active);
 }
 
-void CarlaPlugin::bufferSizeChanged(const uint32_t)
+void CarlaPlugin::bufferSizeChanged(const uint32_t newBufferSize)
 {
+   #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+    delete[] pData->postProc.extraBuffer;
+    pData->postProc.extraBuffer = new float[newBufferSize];
+   #else
+    // unused
+    (void)newBufferSize;
+   #endif
 }
 
 void CarlaPlugin::sampleRateChanged(const double)
@@ -2085,9 +2092,9 @@ void CarlaPlugin::idle()
     if (! pData->enabled)
         return;
 
-    const bool hasUI(pData->hints & PLUGIN_HAS_CUSTOM_UI);
-    const bool needsUiMainThread(pData->hints & PLUGIN_NEEDS_UI_MAIN_THREAD);
-    const uint32_t latency(getLatencyInFrames());
+    const bool hasUI = pData->hints & PLUGIN_HAS_CUSTOM_UI;
+    const bool needsUiMainThread = pData->hints & PLUGIN_NEEDS_UI_MAIN_THREAD;
+    const uint32_t latency = getLatencyInFrames();
 
     if (pData->latency.frames != latency)
     {
@@ -2345,7 +2352,7 @@ void CarlaPlugin::clearBuffers() noexcept
 // OSC stuff
 
 // FIXME
-void CarlaPlugin::handleOscMessage(const char* const, const int, const void* const, const char* const, const lo_message)
+void CarlaPlugin::handleOscMessage(const char*, int, const void*, const char*, void*)
 {
     // do nothing
 }

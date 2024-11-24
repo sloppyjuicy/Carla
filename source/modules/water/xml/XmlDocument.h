@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017-2018 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -152,7 +152,7 @@ public:
     //==============================================================================
 private:
     String originalText;
-    String::CharPointerType input;
+    CharPointer_UTF8 input;
     bool outOfData, errorOccurred;
 
     String lastError, dtdText;
@@ -160,7 +160,7 @@ private:
     bool needToLoadDTD, ignoreEmptyTextElements;
     CarlaScopedPointer<FileInputSource> inputSource;
 
-    XmlElement* parseDocumentElement (String::CharPointerType, bool outer);
+    XmlElement* parseDocumentElement (CharPointer_UTF8, bool outer);
     void setLastError (const String&, bool carryOn);
     bool parseHeader();
     bool parseDTD();
@@ -176,7 +176,7 @@ private:
     String expandExternalEntity (const String&);
     String getParameterEntity (const String&);
 
-    CARLA_DECLARE_NON_COPY_CLASS (XmlDocument)
+    CARLA_DECLARE_NON_COPYABLE (XmlDocument)
 };
 
 }

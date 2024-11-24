@@ -81,15 +81,6 @@ public:
             new (data.elements + i) ElementType (other.data.elements[i]);
     }
 
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    Array (Array<ElementType>&& other) noexcept
-        : data (static_cast<ArrayAllocationBase<ElementType>&&> (other.data)),
-          numUsed (other.numUsed)
-    {
-        other.numUsed = 0;
-    }
-   #endif
-
     /** Initalises from a null-terminated C array of values.
 
         @param values   the array to copy from
@@ -136,17 +127,6 @@ public:
 
         return *this;
     }
-
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    Array& operator= (Array&& other) noexcept
-    {
-        deleteAllElements();
-        data = static_cast<ArrayAllocationBase<ElementType>&&> (other.data);
-        numUsed = other.numUsed;
-        other.numUsed = 0;
-        return *this;
-    }
-   #endif
 
     //==============================================================================
     /** Compares this array to another one.
@@ -379,22 +359,6 @@ public:
         new (data.elements + numUsed++) ElementType (newElement);
         return true;
     }
-
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    /** Appends a new element at the end of the array.
-
-        @param newElement       the new object to add to the array
-        @see set, insert, addIfNotAlreadyThere, addSorted, addUsingDefaultSort, addArray
-    */
-    bool add (ElementType&& newElement) noexcept
-    {
-        if (! data.ensureAllocatedSize (static_cast<size_t>(numUsed + 1)))
-            return false;
-
-        new (data.elements + numUsed++) ElementType (static_cast<ElementType&&> (newElement));
-        return true;
-    }
-   #endif
 
     /** Inserts a new element into the array at a given position.
 
@@ -905,18 +869,30 @@ public:
     {
         const int endIndex = jlimit (0, numUsed, startIndex + numberToRemove);
         startIndex = jlimit (0, numUsed, startIndex);
+        numberToRemove = endIndex - startIndex;
 
-        if (endIndex > startIndex)
+        if (numberToRemove > 0)
         {
+#if 1
             ElementType* const e = data.elements + startIndex;
-
-            numberToRemove = endIndex - startIndex;
-            for (int i = 0; i < numberToRemove; ++i)
-                e[i].~ElementType();
 
             const int numToShift = numUsed - endIndex;
             if (numToShift > 0)
                 data.moveMemory (e, e + numberToRemove, numToShift);
+
+            for (int i = 0; i < numberToRemove; ++i)
+                e[numToShift + i].~ElementType();
+#else
+            ElementType* dst = data.elements + startIndex;
+            ElementType* src = dst + numberToRemove;
+
+            const int numToShift = numUsed - endIndex;
+            for (int i = 0; i < numToShift; ++i)
+                data.moveElement (dst++, std::move (*(src++)));
+
+            for (int i = 0; i < numberToRemove; ++i)
+                (dst++)->~ElementType();
+#endif
 
             numUsed -= numberToRemove;
             minimiseStorageAfterRemoval();

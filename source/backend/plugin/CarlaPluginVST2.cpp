@@ -1,37 +1,19 @@
-/*
- * Carla VST Plugin
- * Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "CarlaPluginInternal.hpp"
 #include "CarlaEngine.hpp"
-#include "AppConfig.h"
-
-#if defined(USING_JUCE) && JUCE_PLUGINHOST_VST
-# define USE_JUCE_FOR_VST2
-#endif
 
 #include "CarlaBackendUtils.hpp"
 #include "CarlaMathUtils.hpp"
 #include "CarlaProcessUtils.hpp"
 #include "CarlaScopeUtils.hpp"
-#include "CarlaVstUtils.hpp"
+#include "CarlaVst2Utils.hpp"
 
 #include "CarlaPluginUI.hpp"
 
 #ifdef CARLA_OS_MAC
+# include "CarlaMacUtils.hpp"
 # import <Foundation/Foundation.h>
 #endif
 
@@ -64,7 +46,7 @@ static const pthread_t kNullThread = {nullptr, 0};
 static const pthread_t kNullThread = 0;
 #endif
 
-// -----------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
 class CarlaPluginVST2 : public CarlaPlugin,
                         private CarlaPluginUI::Callback
@@ -84,10 +66,9 @@ public:
           fIdleThread(kNullThread),
           fMainThread(pthread_self()),
           fProcThread(kNullThread),
-#ifdef CARLA_OS_MAC
-          fMacBundleRef(nullptr),
-          fMacBundleRefNum(0),
-#endif
+         #ifdef CARLA_OS_MAC
+          fBundleLoader(),
+         #endif
           fFirstActive(true),
           fBufferSize(engine->getBufferSize()),
           fAudioOutBuffers(nullptr),
@@ -116,8 +97,7 @@ public:
         // close UI
         if (pData->hints & PLUGIN_HAS_CUSTOM_UI)
         {
-            if (! fUI.isEmbed)
-                showCustomUI(false);
+            showCustomUI(false);
 
             if (fUI.isOpen)
             {
@@ -156,21 +136,6 @@ public:
         }
 
         clearBuffers();
-
-#ifdef CARLA_OS_MAC
-    if (fMacBundleRef != nullptr)
-    {
-        CFBundleCloseBundleResourceMap(fMacBundleRef, fMacBundleRefNum);
-
-        if (CFGetRetainCount(fMacBundleRef) == 1)
-            CFBundleUnloadExecutable(fMacBundleRef);
-
-        if (CFGetRetainCount(fMacBundleRef) > 0)
-            CFRelease(fMacBundleRef);
-
-        fMacBundleRef = nullptr;
-    }
-#endif
     }
 
     // -------------------------------------------------------------------
@@ -214,6 +179,16 @@ public:
         CARLA_SAFE_ASSERT_RETURN(fEffect != nullptr, 0);
 
         return static_cast<int64_t>(fEffect->uniqueID);
+    }
+
+    uint32_t getLatencyInFrames() const noexcept override
+    {
+        CARLA_SAFE_ASSERT_RETURN(fEffect != nullptr, 0);
+
+        const int latency = fEffect->initialDelay;
+        CARLA_SAFE_ASSERT_RETURN(latency >= 0, 0);
+
+        return static_cast<uint32_t>(latency);
     }
 
     // -------------------------------------------------------------------
@@ -413,7 +388,7 @@ public:
         CarlaPlugin::setParameterValue(parameterId, fixedValue, sendGui, sendOsc, sendCallback);
     }
 
-    void setParameterValueRT(const uint32_t parameterId, const float value, const bool sendCallbackLater) noexcept override
+    void setParameterValueRT(const uint32_t parameterId, const float value, const uint32_t frameOffset, const bool sendCallbackLater) noexcept override
     {
         CARLA_SAFE_ASSERT_RETURN(fEffect != nullptr,);
         CARLA_SAFE_ASSERT_RETURN(parameterId < pData->param.count,);
@@ -421,7 +396,7 @@ public:
         const float fixedValue(pData->param.getFixedValue(parameterId, value));
         fEffect->setParameter(fEffect, static_cast<int32_t>(parameterId), fixedValue);
 
-        CarlaPlugin::setParameterValueRT(parameterId, fixedValue, sendCallbackLater);
+        CarlaPlugin::setParameterValueRT(parameterId, fixedValue, frameOffset, sendCallbackLater);
     }
 
     void setChunkData(const void* const data, const std::size_t dataSize) override
@@ -569,12 +544,14 @@ public:
                 value = (intptr_t)fUI.window->getDisplay();
 #endif
 
+#ifndef CARLA_OS_MAC
                 // inform plugin of what UI scale we use
                 dispatcher(effVendorSpecific,
                            CCONST('P', 'r', 'e', 'S'),
                            CCONST('A', 'e', 'C', 's'),
                            nullptr,
                            opts.uiScale);
+#endif
 
                 // NOTE: there are far too many broken VST2 plugins, don't bother checking return value
                 if (dispatcher(effEditOpen, 0, value, fUI.window->getPtr()) != 0 || true)
@@ -592,7 +569,7 @@ public:
                         CARLA_SAFE_ASSERT_INT2(width > 1 && height > 1, width, height);
 
                         if (width > 1 && height > 1)
-                            fUI.window->setSize(static_cast<uint>(width), static_cast<uint>(height), true);
+                            fUI.window->setSize(static_cast<uint>(width), static_cast<uint>(height), true, true);
                     }
                 }
                 else
@@ -617,8 +594,15 @@ public:
         {
             fUI.isVisible = false;
 
-            CARLA_SAFE_ASSERT_RETURN(fUI.window != nullptr,);
-            fUI.window->hide();
+            if (fUI.window != nullptr)
+                fUI.window->hide();
+
+            if (fUI.isEmbed)
+            {
+                fUI.isEmbed = false;
+                fUI.isOpen = false;
+                dispatcher(effEditClose);
+            }
         }
     }
 
@@ -626,18 +610,18 @@ public:
     {
         CARLA_SAFE_ASSERT_RETURN(fUI.window == nullptr, nullptr);
 
-        const EngineOptions& opts(pData->engine->getOptions());
-
         fUI.isEmbed = true;
         fUI.isOpen = true;
         fUI.isVisible = true;
 
+       #ifndef CARLA_OS_MAC
         // inform plugin of what UI scale we use
         dispatcher(effVendorSpecific,
                    CCONST('P', 'r', 'e', 'S'),
                    CCONST('A', 'e', 'C', 's'),
                    nullptr,
-                   opts.uiScale);
+                   pData->engine->getOptions().uiScale);
+       #endif
 
         dispatcher(effEditOpen, 0, 0, ptr);
 
@@ -674,17 +658,11 @@ public:
 
     void uiIdle() override
     {
-        if (fUI.window != nullptr)
-        {
-            fUI.window->idle();
-
-            if (fUI.isVisible)
-                dispatcher(effEditIdle);
-        }
-        else if (fUI.isEmbed)
-        {
+        if (fUI.isVisible)
             dispatcher(effEditIdle);
-        }
+
+        if (fUI.window != nullptr)
+            fUI.window->idle();
 
         CarlaPlugin::uiIdle();
     }
@@ -697,8 +675,6 @@ public:
         CARLA_SAFE_ASSERT_RETURN(pData->engine != nullptr,);
         CARLA_SAFE_ASSERT_RETURN(fEffect != nullptr,);
         carla_debug("CarlaPluginVST2::reload() - start");
-
-        const EngineProcessMode processMode(pData->engine->getProccessMode());
 
         // Safely disable plugin for reload
         const ScopedDisabler sd(this);
@@ -755,7 +731,8 @@ public:
             needsCtrlIn = true;
         }
 
-        const uint portNameSize(pData->engine->getMaxPortNameSize());
+        const EngineProcessMode processMode = pData->engine->getProccessMode();
+        const uint portNameSize = pData->engine->getMaxPortNameSize();
         CarlaString portName;
 
         // Audio Ins
@@ -935,7 +912,7 @@ public:
 
             if ((pData->hints & PLUGIN_USES_OLD_VSTSDK) != 0 || dispatcher(effCanBeAutomated, ij) == 1)
             {
-                pData->param.data[j].hints |= PARAMETER_IS_AUTOMABLE;
+                pData->param.data[j].hints |= PARAMETER_IS_AUTOMATABLE;
 
                 if ((prop.flags & (kVstParameterIsSwitch|kVstParameterUsesIntStep)) == 0x0)
                     pData->param.data[j].hints |= PARAMETER_CAN_BE_CV_CONTROLLED;
@@ -1007,6 +984,7 @@ public:
 #endif
             {
                 pData->hints |= PLUGIN_HAS_CUSTOM_UI;
+                pData->hints |= PLUGIN_HAS_CUSTOM_EMBED_UI;
             }
 
             pData->hints |= PLUGIN_NEEDS_UI_MAIN_THREAD;
@@ -1169,11 +1147,11 @@ public:
 
         try {
             dispatcher(effMainsChanged, 0, 1);
-        } catch(...) {}
+        } CARLA_SAFE_EXCEPTION("effMainsChanged on");
 
         try {
             dispatcher(effStartProcess, 0, 0);
-        } catch(...) {}
+        } CARLA_SAFE_EXCEPTION("effStartProcess on");
 
         fFirstActive = true;
     }
@@ -1184,11 +1162,11 @@ public:
 
         try {
             dispatcher(effStopProcess);
-        } catch(...) {}
+        } CARLA_SAFE_EXCEPTION("effStartProcess off");
 
         try {
             dispatcher(effMainsChanged);
-        } catch(...) {}
+        } CARLA_SAFE_EXCEPTION("effMainsChanged off");
     }
 
     void process(const float* const* const audioIn,
@@ -1222,17 +1200,17 @@ public:
             {
                 fMidiEventCount = MAX_MIDI_CHANNELS*2;
 
-                for (uint8_t i=0, k=MAX_MIDI_CHANNELS; i < MAX_MIDI_CHANNELS; ++i)
+                for (uint8_t i=0; i < MAX_MIDI_CHANNELS; ++i)
                 {
-                    fMidiEvents[k].type = kVstMidiType;
-                    fMidiEvents[k].byteSize    = kVstMidiEventSize;
-                    fMidiEvents[k].midiData[0] = char(MIDI_STATUS_CONTROL_CHANGE | (k & MIDI_CHANNEL_BIT));
-                    fMidiEvents[k].midiData[1] = MIDI_CONTROL_ALL_NOTES_OFF;
+                    fMidiEvents[i].type = kVstMidiType;
+                    fMidiEvents[i].byteSize    = kVstMidiEventSize;
+                    fMidiEvents[i].midiData[0] = char(MIDI_STATUS_CONTROL_CHANGE | (i & MIDI_CHANNEL_BIT));
+                    fMidiEvents[i].midiData[1] = MIDI_CONTROL_ALL_NOTES_OFF;
 
-                    fMidiEvents[k+i].type = kVstMidiType;
-                    fMidiEvents[k+i].byteSize    = kVstMidiEventSize;
-                    fMidiEvents[k+i].midiData[0] = char(MIDI_STATUS_CONTROL_CHANGE | (k & MIDI_CHANNEL_BIT));
-                    fMidiEvents[k+i].midiData[1] = MIDI_CONTROL_ALL_SOUND_OFF;
+                    fMidiEvents[MAX_MIDI_CHANNELS + i].type = kVstMidiType;
+                    fMidiEvents[MAX_MIDI_CHANNELS + i].byteSize    = kVstMidiEventSize;
+                    fMidiEvents[MAX_MIDI_CHANNELS + i].midiData[0] = char(MIDI_STATUS_CONTROL_CHANGE | (i & MIDI_CHANNEL_BIT));
+                    fMidiEvents[MAX_MIDI_CHANNELS + i].midiData[1] = MIDI_CONTROL_ALL_SOUND_OFF;
                 }
             }
             else if (pData->ctrlChannel >= 0 && pData->ctrlChannel < MAX_MIDI_CHANNELS)
@@ -1258,7 +1236,7 @@ public:
 
         fTimeInfo.flags = 0;
 
-        if (fFirstActive || ! fLastTimeInfo.compareIgnoringRollingFrames(timeInfo, fBufferSize))
+        if (fFirstActive || ! fLastTimeInfo.compareIgnoringRollingFrames(timeInfo, frames))
         {
             fTimeInfo.flags |= kVstTransportChanged;
             fLastTimeInfo = timeInfo;
@@ -1286,7 +1264,7 @@ public:
             // const double ppqTick = timeInfo.bbt.tick / timeInfo.bbt.ticksPerBeat;
 
             // PPQ Pos
-            fTimeInfo.ppqPos = fTimeInfo.samplePos / (fTimeInfo.sampleRate * 60 / fTimeInfo.tempo);
+            fTimeInfo.ppqPos = fTimeInfo.samplePos / (fTimeInfo.sampleRate * 60 / timeInfo.bbt.beatsPerMinute);
             // fTimeInfo.ppqPos = ppqBar + ppqBeat + ppqTick;
             fTimeInfo.flags |= kVstPpqPosValid;
 
@@ -1299,8 +1277,8 @@ public:
             fTimeInfo.flags |= kVstBarsValid;
 
             // Time Signature
-            fTimeInfo.timeSigNumerator   = static_cast<int32_t>(timeInfo.bbt.beatsPerBar);
-            fTimeInfo.timeSigDenominator = static_cast<int32_t>(timeInfo.bbt.beatType);
+            fTimeInfo.timeSigNumerator = static_cast<int32_t>(timeInfo.bbt.beatsPerBar + 0.5f);
+            fTimeInfo.timeSigDenominator = static_cast<int32_t>(timeInfo.bbt.beatType + 0.5f);
             fTimeInfo.flags |= kVstTimeSigValid;
         }
         else
@@ -1310,7 +1288,7 @@ public:
             fTimeInfo.flags |= kVstTempoValid;
 
             // Time Signature
-            fTimeInfo.timeSigNumerator   = 4;
+            fTimeInfo.timeSigNumerator = 4;
             fTimeInfo.timeSigDenominator = 4;
             fTimeInfo.flags |= kVstTimeSigValid;
 
@@ -1329,7 +1307,7 @@ public:
 
             if (pData->extNotes.mutex.tryLock())
             {
-                ExternalMidiNote note = { 0, 0, 0 };
+                ExternalMidiNote note = { -1, 0, 0 };
 
                 for (; fMidiEventCount < kPluginMaxMidiEvents*2 && ! pData->extNotes.data.isEmpty();)
                 {
@@ -1422,7 +1400,7 @@ public:
 
                             ctrlEvent.handled = true;
                             value = pData->param.getFinalUnnormalizedValue(k, ctrlEvent.normalizedValue);
-                            setParameterValueRT(k, value, true);
+                            setParameterValueRT(k, value, event.time, true);
                             continue;
                         }
 
@@ -1478,12 +1456,12 @@ public:
                                 continue;
                             if (pData->param.data[k].type != PARAMETER_INPUT)
                                 continue;
-                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMABLE) == 0)
+                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMATABLE) == 0)
                                 continue;
 
                             ctrlEvent.handled = true;
                             value = pData->param.getFinalUnnormalizedValue(k, ctrlEvent.normalizedValue);
-                            setParameterValueRT(k, value, true);
+                            setParameterValueRT(k, value, event.time, true);
                         }
 
                         if ((pData->options & PLUGIN_OPTION_SEND_CONTROL_CHANGES) != 0 && ctrlEvent.param < MAX_MIDI_VALUE)
@@ -1499,7 +1477,7 @@ public:
                             vstMidiEvent.deltaFrames = static_cast<int32_t>(isSampleAccurate ? startTime : eventTime);
                             vstMidiEvent.midiData[0] = char(MIDI_STATUS_CONTROL_CHANGE | (event.channel & MIDI_CHANNEL_BIT));
                             vstMidiEvent.midiData[1] = char(ctrlEvent.param);
-                            vstMidiEvent.midiData[2] = char(ctrlEvent.normalizedValue*127.0f);
+                            vstMidiEvent.midiData[2] = char(ctrlEvent.normalizedValue*127.0f + 0.5f);
                         }
 
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
@@ -1749,7 +1727,7 @@ public:
         // --------------------------------------------------------------------------------------------------------
         // Set audio buffers
 
-        float* vstInBuffer[pData->audioIn.count];
+        float* vstInBuffer[64]; // pData->audioIn.count
 
         for (uint32_t i=0; i < pData->audioIn.count; ++i)
             vstInBuffer[i] = const_cast<float*>(inBuffer[i]+timeOffset);
@@ -1802,7 +1780,8 @@ public:
             const bool isMono    = (pData->audioIn.count == 1);
 
             bool isPair;
-            float bufValue, oldBufLeft[doBalance ? frames : 1];
+            float bufValue;
+            float* const oldBufLeft = pData->postProc.extraBuffer;
 
             for (uint32_t i=0; i < pData->audioOut.count; ++i)
             {
@@ -1895,6 +1874,8 @@ public:
 
         if (pData->active)
             activate();
+
+        CarlaPlugin::bufferSizeChanged(newBufferSize);
     }
 
     void sampleRateChanged(const double newSampleRate) override
@@ -2216,7 +2197,7 @@ protected:
             else
             {
                 CARLA_SAFE_ASSERT_BREAK(fUI.window != nullptr);
-                fUI.window->setSize(static_cast<uint>(index), static_cast<uint>(value), true);
+                fUI.window->setSize(static_cast<uint>(index), static_cast<uint>(value), true, false);
             }
             ret = 1;
             break;
@@ -2435,14 +2416,18 @@ protected:
 
     bool hasMidiInput() const noexcept
     {
-        return (fEffect->flags & effFlagsIsSynth) != 0 ||
-               (pData->hints & PLUGIN_WANTS_MIDI_INPUT) != 0 ||
-               canDo("receiveVstEvents") || canDo("receiveVstMidiEvent");
+        return pData->extraHints & PLUGIN_EXTRA_HINT_HAS_MIDI_IN ||
+               pData->hints & PLUGIN_WANTS_MIDI_INPUT ||
+               fEffect->flags & effFlagsIsSynth ||
+               canDo("receiveVstEvents") ||
+               canDo("receiveVstMidiEvent");
     }
 
     bool hasMidiOutput() const noexcept
     {
-        return canDo("sendVstEvents") || canDo("sendVstMidiEvent");
+        return pData->extraHints & PLUGIN_EXTRA_HINT_HAS_MIDI_OUT ||
+               canDo("sendVstEvents") ||
+               canDo("sendVstMidiEvent");
     }
 
     // -------------------------------------------------------------------
@@ -2485,37 +2470,22 @@ public:
 
         if (filenameCheck.endsWith(".vst") || filenameCheck.endsWith(".vst/"))
         {
-            // FIXME assert returns, set engine error
-            const CFURLRef urlRef = CFURLCreateFromFileSystemRepresentation(0, (const UInt8*)filename, (CFIndex)strlen(filename), true);
-            CARLA_SAFE_ASSERT_RETURN(urlRef != nullptr, false);
-
-            fMacBundleRef = CFBundleCreate(kCFAllocatorDefault, urlRef);
-            CFRelease(urlRef);
-            CARLA_SAFE_ASSERT_RETURN(fMacBundleRef != nullptr, false);
-
-            if (! CFBundleLoadExecutable(fMacBundleRef))
+            if (! fBundleLoader.load(filename))
             {
-                CFRelease(fMacBundleRef);
-                fMacBundleRef = nullptr;
-                pData->engine->setLastError("Failed to load VST bundle executable");
+                pData->engine->setLastError("Failed to load VST2 bundle executable");
                 return false;
             }
 
-            vstFn = (VST_Function)CFBundleGetFunctionPointerForName(fMacBundleRef, CFSTR("VSTPluginMain"));
+            vstFn = fBundleLoader.getSymbol<VST_Function>(CFSTR("VSTPluginMain"));
 
             if (vstFn == nullptr)
-                vstFn = (VST_Function)CFBundleGetFunctionPointerForName(fMacBundleRef, CFSTR("main_macho"));
+                vstFn = fBundleLoader.getSymbol<VST_Function>(CFSTR("main_macho"));
 
             if (vstFn == nullptr)
             {
-                CFBundleUnloadExecutable(fMacBundleRef);
-                CFRelease(fMacBundleRef);
-                fMacBundleRef = nullptr;
-                pData->engine->setLastError("Not a VST plugin");
+                pData->engine->setLastError("Not a VST2 plugin");
                 return false;
             }
-
-            fMacBundleRefNum = CFBundleOpenBundleResourceMap(fMacBundleRef);
         }
         else
 #endif
@@ -2540,7 +2510,7 @@ public:
 
                 if (vstFn == nullptr)
                 {
-                    pData->engine->setLastError("Could not find the VST main entry in the plugin library");
+                    pData->engine->setLastError("Could not find the VST2 main entry in the plugin library");
                     return false;
                 }
             }
@@ -2554,7 +2524,9 @@ public:
 
         bool wasTriggered, wasThrown = false;
         {
+           #if !(defined(CARLA_OS_WASM) || defined(CARLA_OS_WIN))
             const ScopedAbortCatcher sac;
+           #endif
 
             try {
                 fEffect = vstFn(carla_vst_audioMasterCallback);
@@ -2562,13 +2534,19 @@ public:
                 wasThrown = true;
             }
 
+           #if !(defined(CARLA_OS_WASM) || defined(CARLA_OS_WIN))
             wasTriggered = sac.wasTriggered();
+           #else
+            wasTriggered = false;
+           #endif
         }
 
         // try again if plugin blows
         if (wasTriggered || wasThrown)
         {
+           #if !(defined(CARLA_OS_WASM) || defined(CARLA_OS_WIN))
             const ScopedAbortCatcher sac;
+           #endif
 
             try {
                 fEffect = vstFn(carla_vst_audioMasterCallback);
@@ -2692,7 +2670,7 @@ public:
 
         pData->options = 0x0;
 
-        if (pData->latency.frames != 0 || hasMidiOutput() || isPluginOptionEnabled(options, PLUGIN_OPTION_FIXED_BUFFERS))
+        if (fEffect->initialDelay > 0 || hasMidiOutput() || isPluginOptionEnabled(options, PLUGIN_OPTION_FIXED_BUFFERS))
             pData->options |= PLUGIN_OPTION_FIXED_BUFFERS;
 
         if (fEffect->flags & effFlagsProgramChunks)
@@ -2743,10 +2721,9 @@ private:
     pthread_t fMainThread;
     pthread_t fProcThread;
 
-#ifdef CARLA_OS_MAC
-    CFBundleRef    fMacBundleRef;
-    CFBundleRefNum fMacBundleRefNum;
-#endif
+   #ifdef CARLA_OS_MAC
+    BundleLoader fBundleLoader;
+   #endif
 
     bool fFirstActive; // first process() call after activate()
     uint32_t fBufferSize;
@@ -2765,7 +2742,7 @@ private:
             carla_zeroPointers(data, kPluginMaxMidiEvents*2);
         }
 
-        CARLA_DECLARE_NON_COPY_STRUCT(FixedVstEvents);
+        CARLA_DECLARE_NON_COPYABLE(FixedVstEvents);
     } fEvents;
 
     struct UI {
@@ -2791,7 +2768,7 @@ private:
             }
         }
 
-        CARLA_DECLARE_NON_COPY_STRUCT(UI);
+        CARLA_DECLARE_NON_COPYABLE(UI);
     } fUI;
 
     int fUnique2;
@@ -2965,7 +2942,7 @@ CarlaPluginVST2* CarlaPluginVST2::sLastCarlaPluginVST2 = nullptr;
 
 CARLA_BACKEND_END_NAMESPACE
 
-// -------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
 CARLA_BACKEND_START_NAMESPACE
 
@@ -2973,11 +2950,6 @@ CarlaPluginPtr CarlaPlugin::newVST2(const Initializer& init)
 {
     carla_debug("CarlaPlugin::newVST2({%p, \"%s\", \"%s\", " P_INT64 "})",
                 init.engine, init.filename, init.name, init.uniqueId);
-
-#ifdef USE_JUCE_FOR_VST2
-    if (std::getenv("CARLA_DO_NOT_USE_JUCE_FOR_VST2") == nullptr)
-        return newJuce(init, "VST2");
-#endif
 
     std::shared_ptr<CarlaPluginVST2> plugin(new CarlaPluginVST2(init.engine, init.id));
 
@@ -2987,6 +2959,6 @@ CarlaPluginPtr CarlaPlugin::newVST2(const Initializer& init)
     return plugin;
 }
 
-// -------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
 CARLA_BACKEND_END_NAMESPACE

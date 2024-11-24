@@ -1,20 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-# Carla widgets code
-# Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License as
-# published by the Free Software Foundation; either version 2 of
-# the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# For a full copy of the GNU General Public License see the doc/GPL.txt file.
+# SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # ------------------------------------------------------------------------------------------------------------
 # Imports (Global)
@@ -22,17 +8,41 @@
 from abc import abstractmethod
 
 # ------------------------------------------------------------------------------------------------------------
-# Imports (PyQt5)
+# Imports (PyQt)
 
-from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt, QByteArray
-from PyQt5.QtGui import QCursor, QIcon, QPalette, QPixmap
-from PyQt5.QtWidgets import QDialog, QFileDialog, QInputDialog, QMenu, QMessageBox, QScrollArea, QVBoxLayout, QWidget
+from qt_compat import qt_config
+
+if qt_config == 5:
+    from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt, QByteArray
+    from PyQt5.QtGui import QCursor, QIcon, QPalette, QPixmap
+    from PyQt5.QtWidgets import (
+        QDialog,
+        QFileDialog,
+        QInputDialog,
+        QMenu,
+        QMessageBox,
+        QScrollArea,
+        QVBoxLayout,
+        QWidget,
+    )
+elif qt_config == 6:
+    from PyQt6.QtCore import pyqtSignal, pyqtSlot, Qt, QByteArray
+    from PyQt6.QtGui import QCursor, QIcon, QPalette, QPixmap
+    from PyQt6.QtWidgets import (
+        QDialog,
+        QFileDialog,
+        QInputDialog,
+        QMenu,
+        QMessageBox,
+        QScrollArea,
+        QVBoxLayout,
+        QWidget,
+    )
 
 # ------------------------------------------------------------------------------------------------------------
 # Imports (Custom)
 
 import ui_carla_about
-import ui_carla_about_juce
 import ui_carla_edit
 import ui_carla_parameter
 
@@ -68,7 +78,7 @@ from carla_backend import (
     PARAMETER_PANNING,
     PARAMETER_CTRL_CHANNEL,
     PARAMETER_IS_ENABLED,
-    PARAMETER_IS_AUTOMABLE,
+    PARAMETER_IS_AUTOMATABLE,
     PARAMETER_IS_READ_ONLY,
     PARAMETER_USES_SCALEPOINTS,
     PARAMETER_USES_CUSTOM_TEXT,
@@ -122,7 +132,7 @@ class CarlaAboutW(QDialog):
         self.ui.l_about.setText(self.tr(""
                                         "<br>Version %s"
                                         "<br>Carla is a fully-featured audio plugin host%s.<br>"
-                                        "<br>Copyright (C) 2011-2021 falkTX<br>"
+                                        "<br>Copyright (C) 2011-2022 falkTX<br>"
                                         "" % (VERSION, extraInfo)))
 
         if self.ui.about.palette().color(QPalette.Background).blackF() < 0.5:
@@ -203,22 +213,11 @@ class CarlaAboutW(QDialog):
                                       "<li>http://ll-plugins.nongnu.org/lv2/ext/miditype</li>"
                                       "</ul>"))
 
-        usingJuce = "juce" in gCarla.utils.get_supported_features()
-
-        if usingJuce and (MACOS or WINDOWS):
-            self.ui.l_vst2.setText(self.tr("Using JUCE host"))
-        else:
-            self.ui.l_vst2.setText(self.tr("About 85&#37; complete (missing vst bank/presets and some minor stuff)"))
-
-        if usingJuce:
-            self.ui.l_vst3.setText(self.tr("Using JUCE host"))
-        else:
-            self.ui.line_vst2.hide()
-            self.ui.l_vst3.hide()
-            self.ui.lid_vst3.hide()
+        self.ui.l_vst2.setText(self.tr("About 85&#37; complete (missing vst bank/presets and some minor stuff)"))
+        self.ui.l_vst3.setText(self.tr("About 66&#37; complete"))
 
         if MACOS:
-            self.ui.l_au.setText(self.tr("Using JUCE host"))
+            self.ui.l_au.setText(self.tr("About 20&#37; complete"))
         else:
             self.ui.line_vst3.hide()
             self.ui.l_au.hide()
@@ -230,31 +229,6 @@ class CarlaAboutW(QDialog):
         self.adjustSize()
         self.ui.tabWidget.setCurrentIndex(0)
 
-        self.setFixedSize(self.size())
-
-        flags  = self.windowFlags()
-        flags &= ~Qt.WindowContextHelpButtonHint
-
-        if WINDOWS:
-            flags |= Qt.MSWindowsFixedSizeDialogHint
-
-        self.setWindowFlags(flags)
-
-        if MACOS:
-            self.setWindowModality(Qt.WindowModal)
-
-# ------------------------------------------------------------------------------------------------------------
-# JUCE About dialog
-
-class JuceAboutW(QDialog):
-    def __init__(self, parent):
-        QDialog.__init__(self, parent)
-        self.ui = ui_carla_about_juce.Ui_JuceAboutW()
-        self.ui.setupUi(self)
-
-        self.ui.l_text2.setText(self.tr("This program uses JUCE version %s." % gCarla.utils.get_juce_version()))
-
-        self.adjustSize()
         self.setFixedSize(self.size())
 
         flags  = self.windowFlags()
@@ -327,7 +301,7 @@ class PluginParameter(QWidget):
                 self.ui.widget.setReadOnly(True)
                 self.ui.tb_options.setEnabled(False)
 
-            elif not pHints & PARAMETER_IS_AUTOMABLE:
+            elif not pHints & PARAMETER_IS_AUTOMATABLE:
                 self.ui.l_status.setEnabled(False)
                 self.ui.tb_options.setEnabled(False)
 
@@ -1047,20 +1021,27 @@ class PluginEdit(QDialog):
         paramOutputList  = []
         paramInputWidth  = 0
         paramOutputWidth = 0
+        unusedParameters = 0
 
         paramInputListFull  = [] # ([params], width)
         paramOutputListFull = [] # ([params], width)
 
-        for i in range(min(parameterCount, self.host.maxParameters)):
-            paramInfo   = self.host.get_parameter_info(self.fPluginId, i)
-            paramData   = self.host.get_parameter_data(self.fPluginId, i)
-            paramRanges = self.host.get_parameter_ranges(self.fPluginId, i)
-            paramValue  = self.host.get_current_parameter_value(self.fPluginId, i)
+        for i in range(parameterCount):
+            if i - unusedParameters == self.host.maxParameters:
+                break
+
+            paramData = self.host.get_parameter_data(self.fPluginId, i)
 
             if paramData['type'] not in (PARAMETER_INPUT, PARAMETER_OUTPUT):
+                unusedParameters += 1
                 continue
             if (paramData['hints'] & PARAMETER_IS_ENABLED) == 0:
+                unusedParameters += 1
                 continue
+
+            paramInfo   = self.host.get_parameter_info(self.fPluginId, i)
+            paramRanges = self.host.get_parameter_ranges(self.fPluginId, i)
+            paramValue  = self.host.get_current_parameter_value(self.fPluginId, i)
 
             parameter = {
                 'type':  paramData['type'],

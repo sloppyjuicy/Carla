@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017-2020 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2024 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -49,13 +49,13 @@ public:
     ActiveProcess (const String& command)
         : ok (false)
     {
-        STARTUPINFO startupInfo;
+        STARTUPINFOA startupInfo;
         carla_zeroStruct(startupInfo);
         startupInfo.cb = sizeof (startupInfo);
 
-        ok = CreateProcess (nullptr, const_cast<LPSTR>(command.toRawUTF8()),
-                            nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
-                            nullptr, nullptr, &startupInfo, &processInfo) != FALSE;
+        ok = CreateProcessA (nullptr, const_cast<LPSTR>(command.toRawUTF8()),
+                             nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+                             nullptr, nullptr, &startupInfo, &processInfo) != FALSE;
     }
 
     ~ActiveProcess()
@@ -117,7 +117,7 @@ public:
 private:
     PROCESS_INFORMATION processInfo;
 
-    CARLA_DECLARE_NON_COPY_CLASS (ActiveProcess)
+    CARLA_DECLARE_NON_COPYABLE (ActiveProcess)
 };
 #else
 class ChildProcess::ActiveProcess
@@ -130,8 +130,8 @@ public:
 
         // Looks like you're trying to launch a non-existent exe or a folder (perhaps on OSX
         // you're trying to launch the .app folder rather than the actual binary inside it?)
-        wassert (File::getCurrentWorkingDirectory().getChildFile (exe).existsAsFile()
-                  || ! exe.containsChar (File::separator));
+        wassert (File::getCurrentWorkingDirectory().getChildFile (exe.toRawUTF8()).existsAsFile()
+                  || ! exe.containsChar (CARLA_OS_SEP));
 
         Array<char*> argv;
         for (int i = 0; i < arguments.size(); ++i)
@@ -146,9 +146,11 @@ public:
 
         switch (type)
         {
+# ifdef __MAC_10_12
         case TypeARM:
             pref = CPU_TYPE_ARM64;
             break;
+# endif
         case TypeIntel:
             pref = CPU_TYPE_X86_64;
             break;
@@ -162,7 +164,7 @@ public:
         // posix_spawnattr_setflags(&attr, POSIX_SPAWN_USEVFORK);
         CARLA_SAFE_ASSERT_RETURN(posix_spawnattr_setbinpref_np(&attr, 1, &pref, nullptr) == 0,);
         char*** const environptr = _NSGetEnviron();
-        CARLA_SAFE_ASSERT_RETURN(posix_spawn(&result, exe.toRawUTF8(), nullptr, &attr, 
+        CARLA_SAFE_ASSERT_RETURN(posix_spawn(&result, exe.toRawUTF8(), nullptr, &attr,
                                  argv.getRawDataPointer(), environptr != nullptr ? *environptr : nullptr) == 0,);
         posix_spawnattr_destroy(&attr);
 #else
@@ -269,7 +271,7 @@ public:
     int childPID;
 
 private:
-    CARLA_DECLARE_NON_COPY_CLASS (ActiveProcess)
+    CARLA_DECLARE_NON_COPYABLE (ActiveProcess)
 };
 #endif
 

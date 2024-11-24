@@ -1,6 +1,6 @@
 /*
  * Carla math utils
- * Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -172,7 +172,15 @@ void carla_addFloats(float dest[], const float src[], const std::size_t count) n
     CARLA_SAFE_ASSERT_RETURN(count > 0,);
 
     for (std::size_t i=0; i<count; ++i)
-        *dest++ += *src++;
+    {
+       #ifdef __GNUC__
+        if (!std::isfinite(dest[i]))
+            __builtin_unreachable();
+        if (!std::isfinite(src[i]))
+            __builtin_unreachable();
+       #endif
+        dest[i] += src[i];
+    }
 }
 
 /*
@@ -204,7 +212,13 @@ void carla_fillFloatsWithSingleValue(float data[], const float& value, const std
     else
     {
         for (std::size_t i=0; i<count; ++i)
-            *data++ = value;
+        {
+           #ifdef __GNUC__
+            if (!std::isfinite(data[i]))
+                __builtin_unreachable();
+           #endif
+            data[i] = value;
+        }
     }
 }
 
@@ -238,26 +252,31 @@ void carla_fill<float>(float data[], const float& value, const std::size_t count
 static inline
 float carla_findMaxNormalizedFloat(const float floats[], const std::size_t count)
 {
-    CARLA_SAFE_ASSERT_RETURN(floats != nullptr, 0.0f);
-    CARLA_SAFE_ASSERT_RETURN(count > 0, 0.0f);
+    CARLA_SAFE_ASSERT_RETURN(floats != nullptr, 0.f);
+    CARLA_SAFE_ASSERT_RETURN(count > 0, 0.f);
 
-    static const float kEmptyFloats[8192] = { 0.0f };
+    static constexpr const float kEmptyFloats[8192] = {};
 
-    if (count <= 8192 && std::memcmp(floats, kEmptyFloats, count) == 0)
+    if (count <= 8192 && std::memcmp(floats, kEmptyFloats, sizeof(float)*count) == 0)
         return 0.0f;
 
     float tmp, maxf2 = std::abs(floats[0]);
 
     for (std::size_t i=1; i<count; ++i)
     {
-        tmp = std::abs(*floats++);
+       #ifdef __GNUC__
+        if (!std::isfinite(floats[i]))
+            __builtin_unreachable();
+       #endif
+
+        tmp = std::abs(floats[i]);
 
         if (tmp > maxf2)
             maxf2 = tmp;
     }
 
-    if (maxf2 > 1.0f)
-        maxf2 = 1.0f;
+    if (maxf2 > 1.f)
+        maxf2 = 1.f;
 
     return maxf2;
 }
@@ -278,7 +297,13 @@ void carla_multiply(float data[], const float& multiplier, const std::size_t cou
     else
     {
         for (std::size_t i=0; i<count; ++i)
-            *data++ *= multiplier;
+        {
+           #ifdef __GNUC__
+            if (!std::isfinite(data[i]))
+                __builtin_unreachable();
+           #endif
+            data[i] *= multiplier;
+        }
     }
 }
 

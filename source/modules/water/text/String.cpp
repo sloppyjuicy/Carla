@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017-2019 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -49,10 +49,10 @@ struct EmptyString
 {
     int refCount;
     size_t allocatedBytes;
-    String::CharPointerType::CharType text;
+    CharPointer_UTF8::CharType text;
 };
 
-static const EmptyString emptyString = { 0x3fffffff, sizeof (String::CharPointerType::CharType), '\0' };
+static const EmptyString emptyString = { 0x3fffffff, sizeof (CharPointer_UTF8::CharType), '\0' };
 
 //==============================================================================
 class StringHolder
@@ -60,36 +60,35 @@ class StringHolder
 public:
     StringHolder() WATER_DELETED_FUNCTION;
 
-    typedef String::CharPointerType CharPointerType;
-    typedef String::CharPointerType::CharType CharType;
+    typedef CharPointer_UTF8::CharType CharType;
 
     //==============================================================================
-    static CharPointerType createUninitialisedBytes (size_t numBytes)
+    static CharPointer_UTF8 createUninitialisedBytes (size_t numBytes)
     {
         numBytes = (numBytes + 3) & ~(size_t) 3;
         StringHolder* const s = reinterpret_cast<StringHolder*> (new char [sizeof (StringHolder) - sizeof (CharType) + numBytes]);
         s->refCount.value = 0;
         s->allocatedNumBytes = numBytes;
-        return CharPointerType (s->text);
+        return CharPointer_UTF8 (s->text);
     }
 
     template <class CharPointer>
-    static CharPointerType createFromCharPointer (const CharPointer text)
+    static CharPointer_UTF8 createFromCharPointer (const CharPointer text)
     {
         if (text.getAddress() == nullptr || text.isEmpty())
-            return CharPointerType (&(emptyString.text));
+            return CharPointer_UTF8 (&(emptyString.text));
 
-        const size_t bytesNeeded = sizeof (CharType) + CharPointerType::getBytesRequiredFor (text);
-        const CharPointerType dest (createUninitialisedBytes (bytesNeeded));
-        CharPointerType (dest).writeAll (text);
+        const size_t bytesNeeded = sizeof (CharType) + CharPointer_UTF8::getBytesRequiredFor (text);
+        const CharPointer_UTF8 dest (createUninitialisedBytes (bytesNeeded));
+        CharPointer_UTF8 (dest).writeAll (text);
         return dest;
     }
 
     template <class CharPointer>
-    static CharPointerType createFromCharPointer (const CharPointer text, size_t maxChars)
+    static CharPointer_UTF8 createFromCharPointer (const CharPointer text, size_t maxChars)
     {
         if (text.getAddress() == nullptr || text.isEmpty() || maxChars == 0)
-            return CharPointerType (&(emptyString.text));
+            return CharPointer_UTF8 (&(emptyString.text));
 
         CharPointer end (text);
         size_t numChars = 0;
@@ -97,20 +96,20 @@ public:
 
         while (numChars < maxChars && ! end.isEmpty())
         {
-            bytesNeeded += CharPointerType::getBytesRequiredFor (end.getAndAdvance());
+            bytesNeeded += CharPointer_UTF8::getBytesRequiredFor (end.getAndAdvance());
             ++numChars;
         }
 
-        const CharPointerType dest (createUninitialisedBytes (bytesNeeded));
-        CharPointerType (dest).writeWithCharLimit (text, (int) numChars + 1);
+        const CharPointer_UTF8 dest (createUninitialisedBytes (bytesNeeded));
+        CharPointer_UTF8 (dest).writeWithCharLimit (text, (int) numChars + 1);
         return dest;
     }
 
     template <class CharPointer>
-    static CharPointerType createFromCharPointer (const CharPointer start, const CharPointer end)
+    static CharPointer_UTF8 createFromCharPointer (const CharPointer start, const CharPointer end)
     {
         if (start.getAddress() == nullptr || start.isEmpty())
-            return CharPointerType (&(emptyString.text));
+            return CharPointer_UTF8 (&(emptyString.text));
 
         CharPointer e (start);
         int numChars = 0;
@@ -118,37 +117,37 @@ public:
 
         while (e < end && ! e.isEmpty())
         {
-            bytesNeeded += CharPointerType::getBytesRequiredFor (e.getAndAdvance());
+            bytesNeeded += CharPointer_UTF8::getBytesRequiredFor (e.getAndAdvance());
             ++numChars;
         }
 
-        const CharPointerType dest (createUninitialisedBytes (bytesNeeded));
-        CharPointerType (dest).writeWithCharLimit (start, numChars + 1);
+        const CharPointer_UTF8 dest (createUninitialisedBytes (bytesNeeded));
+        CharPointer_UTF8 (dest).writeWithCharLimit (start, numChars + 1);
         return dest;
     }
 
-    static CharPointerType createFromCharPointer (const CharPointerType start, const CharPointerType end)
+    static CharPointer_UTF8 createFromCharPointer (const CharPointer_UTF8 start, const CharPointer_UTF8 end)
     {
         if (start.getAddress() == nullptr || start.isEmpty())
-            return CharPointerType (&(emptyString.text));
+            return CharPointer_UTF8 (&(emptyString.text));
 
         const size_t numBytes = (size_t) (reinterpret_cast<const char*> (end.getAddress())
                                            - reinterpret_cast<const char*> (start.getAddress()));
-        const CharPointerType dest (createUninitialisedBytes (numBytes + sizeof (CharType)));
+        const CharPointer_UTF8 dest (createUninitialisedBytes (numBytes + sizeof (CharType)));
         memcpy (dest.getAddress(), start, numBytes);
         dest.getAddress()[numBytes / sizeof (CharType)] = 0;
         return dest;
     }
 
-    static CharPointerType createFromFixedLength (const char* const src, const size_t numChars)
+    static CharPointer_UTF8 createFromFixedLength (const char* const src, const size_t numChars)
     {
-        const CharPointerType dest (createUninitialisedBytes (numChars * sizeof (CharType) + sizeof (CharType)));
-        CharPointerType (dest).writeWithCharLimit (CharPointer_UTF8 (src), (int) (numChars + 1));
+        const CharPointer_UTF8 dest (createUninitialisedBytes (numChars * sizeof (CharType) + sizeof (CharType)));
+        CharPointer_UTF8 (dest).writeWithCharLimit (CharPointer_UTF8 (src), (int) (numChars + 1));
         return dest;
     }
 
     //==============================================================================
-    static void retain (const CharPointerType text) noexcept
+    static void retain (const CharPointer_UTF8 text) noexcept
     {
         StringHolder* const b = bufferFromText (text);
 
@@ -163,24 +162,24 @@ public:
                 delete[] reinterpret_cast<char*> (b);
     }
 
-    static void release (const CharPointerType text) noexcept
+    static void release (const CharPointer_UTF8 text) noexcept
     {
         release (bufferFromText (text));
     }
 
-    static inline int getReferenceCount (const CharPointerType text) noexcept
+    static inline int getReferenceCount (const CharPointer_UTF8 text) noexcept
     {
         return bufferFromText (text)->refCount.get() + 1;
     }
 
     //==============================================================================
-    static CharPointerType makeUniqueWithByteSize (const CharPointerType text, size_t numBytes)
+    static CharPointer_UTF8 makeUniqueWithByteSize (const CharPointer_UTF8 text, size_t numBytes)
     {
         StringHolder* const b = bufferFromText (text);
 
         if (b == (StringHolder*) &emptyString)
         {
-            CharPointerType newText (createUninitialisedBytes (numBytes));
+            CharPointer_UTF8 newText (createUninitialisedBytes (numBytes));
             newText.writeNull();
             return newText;
         }
@@ -188,14 +187,14 @@ public:
         if (b->allocatedNumBytes >= numBytes && b->refCount.get() <= 0)
             return text;
 
-        CharPointerType newText (createUninitialisedBytes (jmax (b->allocatedNumBytes, numBytes)));
+        CharPointer_UTF8 newText (createUninitialisedBytes (jmax (b->allocatedNumBytes, numBytes)));
         memcpy (newText.getAddress(), text.getAddress(), b->allocatedNumBytes);
         release (b);
 
         return newText;
     }
 
-    static size_t getAllocatedNumBytes (const CharPointerType text) noexcept
+    static size_t getAllocatedNumBytes (const CharPointer_UTF8 text) noexcept
     {
         return bufferFromText (text)->allocatedNumBytes;
     }
@@ -206,7 +205,7 @@ public:
     CharType text[1];
 
 private:
-    static inline StringHolder* bufferFromText (const CharPointerType text) noexcept
+    static inline StringHolder* bufferFromText (const CharPointer_UTF8 text) noexcept
     {
         // (Can't use offsetof() here because of warnings about this not being a POD)
         return reinterpret_cast<StringHolder*> (reinterpret_cast<char*> (text.getAddress())
@@ -242,34 +241,20 @@ void String::clear() noexcept
 
 String& String::operator= (const String& other) noexcept
 {
-    StringHolder::retain (other.text);
-    StringHolder::release (text.atomicSwap (other.text));
+    swapWith(const_cast<String&>(other));
     return *this;
 }
-
-#if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-String::String (String&& other) noexcept   : text (other.text)
-{
-    other.text = &(emptyString.text);
-}
-
-String& String::operator= (String&& other) noexcept
-{
-    std::swap (text, other.text);
-    return *this;
-}
-#endif
 
 inline String::PreallocationBytes::PreallocationBytes (const size_t num) noexcept : numBytes (num) {}
 
 String::String (const PreallocationBytes& preallocationSize)
-    : text (StringHolder::createUninitialisedBytes (preallocationSize.numBytes + sizeof (CharPointerType::CharType)))
+    : text (StringHolder::createUninitialisedBytes (preallocationSize.numBytes + sizeof (CharPointer_UTF8::CharType)))
 {
 }
 
 void String::preallocateBytes (const size_t numBytesNeeded)
 {
-    text = StringHolder::makeUniqueWithByteSize (text, numBytesNeeded + sizeof (CharPointerType::CharType));
+    text = StringHolder::makeUniqueWithByteSize (text, numBytesNeeded + sizeof (CharPointer_UTF8::CharType));
 }
 
 int String::getReferenceCount() const noexcept
@@ -325,8 +310,8 @@ String::String (StringRef s)          : text (StringHolder::createFromCharPointe
 
 String String::charToString (const water_uchar character)
 {
-    String result (PreallocationBytes (CharPointerType::getBytesRequiredFor (character)));
-    CharPointerType t (result.text);
+    String result (PreallocationBytes (CharPointer_UTF8::getBytesRequiredFor (character)));
+    CharPointer_UTF8 t (result.text);
     t.write (character);
     t.writeNull();
     return result;
@@ -430,7 +415,7 @@ namespace NumberToStringConverters
     }
 
     template <typename IntegerType>
-    static String::CharPointerType createFromInteger (const IntegerType number)
+    static CharPointer_UTF8 createFromInteger (const IntegerType number)
     {
         char buffer [charsNeededForInt];
         char* const end = buffer + numElementsInArray (buffer);
@@ -438,7 +423,7 @@ namespace NumberToStringConverters
         return StringHolder::createFromFixedLength (start, (size_t) (end - start - 1));
     }
 
-    static String::CharPointerType createFromDouble (const double number, const int numberOfDecimalPlaces)
+    static CharPointer_UTF8 createFromDouble (const double number, const int numberOfDecimalPlaces)
     {
         char buffer [charsNeededForDouble];
         size_t len;
@@ -468,7 +453,7 @@ int String::length() const noexcept
     return (int) text.length();
 }
 
-static size_t findByteOffsetOfEnd (String::CharPointerType text) noexcept
+static size_t findByteOffsetOfEnd (CharPointer_UTF8 text) noexcept
 {
     return (size_t) (((char*) text.findTerminatingNull().getAddress()) - (char*) text.getAddress());
 }
@@ -540,7 +525,7 @@ int String::compare (const String& other) const noexcept           { return (tex
 int String::compare (const char* const other) const noexcept       { return text.compare (CharPointer_UTF8 (other)); }
 int String::compareIgnoreCase (const String& other) const noexcept { return (text == other.text) ? 0 : text.compareIgnoreCase (other.text); }
 
-static int stringCompareRight (String::CharPointerType s1, String::CharPointerType s2) noexcept
+static int stringCompareRight (CharPointer_UTF8 s1, CharPointer_UTF8 s2) noexcept
 {
     for (int bias = 0;;)
     {
@@ -561,7 +546,7 @@ static int stringCompareRight (String::CharPointerType s1, String::CharPointerTy
     }
 }
 
-static int stringCompareLeft (String::CharPointerType s1, String::CharPointerType s2) noexcept
+static int stringCompareLeft (CharPointer_UTF8 s1, CharPointer_UTF8 s2) noexcept
 {
     for (;;)
     {
@@ -579,7 +564,7 @@ static int stringCompareLeft (String::CharPointerType s1, String::CharPointerTyp
     }
 }
 
-static int naturalStringCompare (String::CharPointerType s1, String::CharPointerType s2, bool isCaseSensitive) noexcept
+static int naturalStringCompare (CharPointer_UTF8 s1, CharPointer_UTF8 s2, bool isCaseSensitive) noexcept
 {
     bool firstLoop = true;
 
@@ -646,13 +631,13 @@ void String::append (const String& textToAppend, size_t maxCharsToTake)
                                              : textToAppend.text, maxCharsToTake);
 }
 
-void String::appendCharPointer (const CharPointerType textToAppend)
+void String::appendCharPointer (const CharPointer_UTF8 textToAppend)
 {
     appendCharPointer (textToAppend, textToAppend.findTerminatingNull());
 }
 
-void String::appendCharPointer (const CharPointerType startOfTextToAppend,
-                                const CharPointerType endOfTextToAppend)
+void String::appendCharPointer (const CharPointer_UTF8 startOfTextToAppend,
+                                const CharPointer_UTF8 endOfTextToAppend)
 {
     wassert (startOfTextToAppend.getAddress() != nullptr && endOfTextToAppend.getAddress() != nullptr);
 
@@ -665,9 +650,9 @@ void String::appendCharPointer (const CharPointerType startOfTextToAppend,
         const size_t byteOffsetOfNull = getByteOffsetOfEnd();
         preallocateBytes (byteOffsetOfNull + (size_t) extraBytesNeeded);
 
-        CharPointerType::CharType* const newStringStart = addBytesToPointer (text.getAddress(), (int) byteOffsetOfNull);
+        CharPointer_UTF8::CharType* const newStringStart = addBytesToPointer (text.getAddress(), (int) byteOffsetOfNull);
         memcpy (newStringStart, startOfTextToAppend.getAddress(), (size_t) extraBytesNeeded);
-        CharPointerType (addBytesToPointer (newStringStart, extraBytesNeeded)).writeNull();
+        CharPointer_UTF8 (addBytesToPointer (newStringStart, extraBytesNeeded)).writeNull();
     }
 }
 
@@ -714,7 +699,7 @@ namespace StringHelpers
         char* end = buffer + numElementsInArray (buffer);
         char* start = NumberToStringConverters::numberToString (end, number);
 
-        str.appendCharPointer (String::CharPointerType (start), String::CharPointerType (end));
+        str.appendCharPointer (CharPointer_UTF8 (start), CharPointer_UTF8 (end));
         return str;
     }
 }
@@ -770,7 +755,7 @@ int String::indexOfChar (const water_uchar character) const noexcept
 
 int String::indexOfChar (const int startIndex, const water_uchar character) const noexcept
 {
-    CharPointerType t (text);
+    CharPointer_UTF8 t (text);
 
     for (int i = 0; ! t.isEmpty(); ++i)
     {
@@ -790,7 +775,7 @@ int String::indexOfChar (const int startIndex, const water_uchar character) cons
 
 int String::lastIndexOfChar (const water_uchar character) const noexcept
 {
-    CharPointerType t (text);
+    CharPointer_UTF8 t (text);
     int last = -1;
 
     for (int i = 0; ! t.isEmpty(); ++i)
@@ -802,7 +787,7 @@ int String::lastIndexOfChar (const water_uchar character) const noexcept
 
 int String::indexOfAnyOf (StringRef charactersToLookFor, const int startIndex, const bool ignoreCase) const noexcept
 {
-    CharPointerType t (text);
+    CharPointer_UTF8 t (text);
 
     for (int i = 0; ! t.isEmpty(); ++i)
     {
@@ -835,7 +820,7 @@ int String::indexOf (const int startIndex, StringRef other) const noexcept
     if (other.isEmpty())
         return -1;
 
-    CharPointerType t (text);
+    CharPointer_UTF8 t (text);
 
     for (int i = startIndex; --i >= 0;)
     {
@@ -856,7 +841,7 @@ int String::indexOfIgnoreCase (const int startIndex, StringRef other) const noex
     if (other.isEmpty())
         return -1;
 
-    CharPointerType t (text);
+    CharPointer_UTF8 t (text);
 
     for (int i = startIndex; --i >= 0;)
     {
@@ -881,7 +866,7 @@ int String::lastIndexOf (StringRef other) const noexcept
 
         if (i >= 0)
         {
-            for (CharPointerType n (text + i); i >= 0; --i)
+            for (CharPointer_UTF8 n (text + i); i >= 0; --i)
             {
                 if (n.compareUpTo (other.text, len) == 0)
                     return i;
@@ -903,7 +888,7 @@ int String::lastIndexOfIgnoreCase (StringRef other) const noexcept
 
         if (i >= 0)
         {
-            for (CharPointerType n (text + i); i >= 0; --i)
+            for (CharPointer_UTF8 n (text + i); i >= 0; --i)
             {
                 if (n.compareIgnoreCaseUpTo (other.text, len) == 0)
                     return i;
@@ -918,7 +903,7 @@ int String::lastIndexOfIgnoreCase (StringRef other) const noexcept
 
 int String::lastIndexOfAnyOf (StringRef charactersToLookFor, const bool ignoreCase) const noexcept
 {
-    CharPointerType t (text);
+    CharPointer_UTF8 t (text);
     int last = -1;
 
     for (int i = 0; ! t.isEmpty(); ++i)
@@ -947,7 +932,7 @@ int String::indexOfWholeWord (StringRef word) const noexcept
 {
     if (word.isNotEmpty())
     {
-        CharPointerType t (text);
+        CharPointer_UTF8 t (text);
         const int wordLen = word.length();
         const int end = (int) t.length() - wordLen;
 
@@ -969,7 +954,7 @@ int String::indexOfWholeWordIgnoreCase (StringRef word) const noexcept
 {
     if (word.isNotEmpty())
     {
-        CharPointerType t (text);
+        CharPointer_UTF8 t (text);
         const int wordLen = word.length();
         const int end = (int) t.length() - wordLen;
 
@@ -1036,7 +1021,7 @@ struct WildCardMatcher
 
 bool String::matchesWildcard (StringRef wildcard, const bool ignoreCase) const noexcept
 {
-    return WildCardMatcher<CharPointerType>::matches (wildcard.text, text, ignoreCase);
+    return WildCardMatcher<CharPointer_UTF8>::matches (wildcard.text, text, ignoreCase);
 }
 
 //==============================================================================
@@ -1046,7 +1031,7 @@ String String::repeatedString (StringRef stringToRepeat, int numberOfTimesToRepe
         return String();
 
     String result (PreallocationBytes (findByteOffsetOfEnd (stringToRepeat) * (size_t) numberOfTimesToRepeat));
-    CharPointerType n (result.text);
+    CharPointer_UTF8 n (result.text);
 
     while (--numberOfTimesToRepeat >= 0)
         n.writeAll (stringToRepeat.text);
@@ -1059,7 +1044,7 @@ String String::paddedLeft (const water_uchar padCharacter, int minimumLength) co
     wassert (padCharacter != 0);
 
     int extraChars = minimumLength;
-    CharPointerType end (text);
+    CharPointer_UTF8 end (text);
 
     while (! end.isEmpty())
     {
@@ -1071,8 +1056,8 @@ String String::paddedLeft (const water_uchar padCharacter, int minimumLength) co
         return *this;
 
     const size_t currentByteSize = (size_t) (((char*) end.getAddress()) - (char*) text.getAddress());
-    String result (PreallocationBytes (currentByteSize + (size_t) extraChars * CharPointerType::getBytesRequiredFor (padCharacter)));
-    CharPointerType n (result.text);
+    String result (PreallocationBytes (currentByteSize + (size_t) extraChars * CharPointer_UTF8::getBytesRequiredFor (padCharacter)));
+    CharPointer_UTF8 n (result.text);
 
     while (--extraChars >= 0)
         n.write (padCharacter);
@@ -1086,7 +1071,7 @@ String String::paddedRight (const water_uchar padCharacter, int minimumLength) c
     CARLA_SAFE_ASSERT_RETURN (padCharacter != 0, *this);
 
     int extraChars = minimumLength;
-    CharPointerType end (text);
+    CharPointer_UTF8 end (text);
 
     while (! end.isEmpty())
     {
@@ -1098,8 +1083,8 @@ String String::paddedRight (const water_uchar padCharacter, int minimumLength) c
         return *this;
 
     const size_t currentByteSize = (size_t) (((char*) end.getAddress()) - (char*) text.getAddress());
-    String result (PreallocationBytes (currentByteSize + (size_t) extraChars * CharPointerType::getBytesRequiredFor (padCharacter)));
-    CharPointerType n (result.text);
+    String result (PreallocationBytes (currentByteSize + (size_t) extraChars * CharPointer_UTF8::getBytesRequiredFor (padCharacter)));
+    CharPointer_UTF8 n (result.text);
 
     n.writeAll (text);
 
@@ -1127,7 +1112,7 @@ String String::replaceSection (int index, int numCharsToReplace, StringRef strin
         wassertfalse;
     }
 
-    CharPointerType insertPoint (text);
+    CharPointer_UTF8 insertPoint (text);
 
     for (int i = 0; i < index; ++i)
     {
@@ -1141,7 +1126,7 @@ String String::replaceSection (int index, int numCharsToReplace, StringRef strin
         ++insertPoint;
     }
 
-    CharPointerType startOfRemainder (insertPoint);
+    CharPointer_UTF8 startOfRemainder (insertPoint);
 
     for (int i = 0; i < numCharsToReplace && ! startOfRemainder.isEmpty(); ++i)
         ++startOfRemainder;
@@ -1166,7 +1151,7 @@ String String::replaceSection (int index, int numCharsToReplace, StringRef strin
     dest += newStringBytes;
     memcpy (dest, startOfRemainder.getAddress(), remainderBytes);
     dest += remainderBytes;
-    CharPointerType ((CharPointerType::CharType*) dest).writeNull();
+    CharPointer_UTF8 ((CharPointer_UTF8::CharType*) dest).writeNull();
 
     return result;
 }
@@ -1199,7 +1184,7 @@ public:
         dest = result.getCharPointer();
     }
 
-    StringCreationHelper (const String::CharPointerType s)
+    StringCreationHelper (const CharPointer_UTF8 s)
         : source (s), dest (nullptr), allocatedBytes (StringHolder::getAllocatedNumBytes (s)), bytesWritten (0)
     {
         result.preallocateBytes (allocatedBytes);
@@ -1208,7 +1193,7 @@ public:
 
     void write (water_uchar c)
     {
-        bytesWritten += String::CharPointerType::getBytesRequiredFor (c);
+        bytesWritten += CharPointer_UTF8::getBytesRequiredFor (c);
 
         if (bytesWritten > allocatedBytes)
         {
@@ -1222,10 +1207,10 @@ public:
     }
 
     String result;
-    String::CharPointerType source;
+    CharPointer_UTF8 source;
 
 private:
-    String::CharPointerType dest;
+    CharPointer_UTF8 dest;
     size_t allocatedBytes, bytesWritten;
 };
 
@@ -1304,14 +1289,14 @@ bool String::endsWithChar (const water_uchar character) const noexcept
     if (text.isEmpty())
         return false;
 
-    CharPointerType t (text.findTerminatingNull());
+    CharPointer_UTF8 t (text.findTerminatingNull());
     return *--t == character;
 }
 
 bool String::endsWith (StringRef other) const noexcept
 {
-    CharPointerType end (text.findTerminatingNull());
-    CharPointerType otherEnd (other.text.findTerminatingNull());
+    CharPointer_UTF8 end (text.findTerminatingNull());
+    CharPointer_UTF8 otherEnd (other.text.findTerminatingNull());
 
     while (end > text && otherEnd > other.text)
     {
@@ -1327,8 +1312,8 @@ bool String::endsWith (StringRef other) const noexcept
 
 bool String::endsWithIgnoreCase (StringRef other) const noexcept
 {
-    CharPointerType end (text.findTerminatingNull());
-    CharPointerType otherEnd (other.text.findTerminatingNull());
+    CharPointer_UTF8 end (text.findTerminatingNull());
+    CharPointer_UTF8 otherEnd (other.text.findTerminatingNull());
 
     while (end > text && otherEnd > other.text)
     {
@@ -1394,7 +1379,7 @@ String String::substring (int start, const int end) const
         return String();
 
     int i = 0;
-    CharPointerType t1 (text);
+    CharPointer_UTF8 t1 (text);
 
     while (i < start)
     {
@@ -1405,7 +1390,7 @@ String String::substring (int start, const int end) const
         ++t1;
     }
 
-    CharPointerType t2 (t1);
+    CharPointer_UTF8 t2 (t1);
     while (i < end)
     {
         if (t2.isEmpty())
@@ -1428,7 +1413,7 @@ String String::substring (int start) const
     if (start <= 0)
         return *this;
 
-    CharPointerType t (text);
+    CharPointer_UTF8 t (text);
 
     while (--start >= 0)
     {
@@ -1538,8 +1523,7 @@ String String::quoted (water_uchar quoteCharacter) const
 }
 
 //==============================================================================
-static String::CharPointerType findTrimmedEnd (const String::CharPointerType start,
-                                               String::CharPointerType end)
+static CharPointer_UTF8 findTrimmedEnd (const CharPointer_UTF8 start, CharPointer_UTF8 end)
 {
     while (end > start)
     {
@@ -1557,10 +1541,10 @@ String String::trim() const
 {
     if (isNotEmpty())
     {
-        CharPointerType start (text.findEndOfWhitespace());
+        CharPointer_UTF8 start (text.findEndOfWhitespace());
 
-        const CharPointerType end (start.findTerminatingNull());
-        CharPointerType trimmedEnd (findTrimmedEnd (start, end));
+        const CharPointer_UTF8 end (start.findTerminatingNull());
+        CharPointer_UTF8 trimmedEnd (findTrimmedEnd (start, end));
 
         if (trimmedEnd <= start)
             return String();
@@ -1576,7 +1560,7 @@ String String::trimStart() const
 {
     if (isNotEmpty())
     {
-        const CharPointerType t (text.findEndOfWhitespace());
+        const CharPointer_UTF8 t (text.findEndOfWhitespace());
 
         if (t != text)
             return String (t);
@@ -1589,8 +1573,8 @@ String String::trimEnd() const
 {
     if (isNotEmpty())
     {
-        const CharPointerType end (text.findTerminatingNull());
-        CharPointerType trimmedEnd (findTrimmedEnd (text, end));
+        const CharPointer_UTF8 end (text.findTerminatingNull());
+        CharPointer_UTF8 trimmedEnd (findTrimmedEnd (text, end));
 
         if (trimmedEnd < end)
             return String (text, trimmedEnd);
@@ -1601,7 +1585,7 @@ String String::trimEnd() const
 
 String String::trimCharactersAtStart (StringRef charactersToTrim) const
 {
-    CharPointerType t (text);
+    CharPointer_UTF8 t (text);
 
     while (charactersToTrim.text.indexOf (*t) >= 0)
         ++t;
@@ -1613,8 +1597,8 @@ String String::trimCharactersAtEnd (StringRef charactersToTrim) const
 {
     if (isNotEmpty())
     {
-        const CharPointerType end (text.findTerminatingNull());
-        CharPointerType trimmedEnd (end);
+        const CharPointer_UTF8 end (text.findTerminatingNull());
+        CharPointer_UTF8 trimmedEnd (end);
 
         while (trimmedEnd > text)
         {
@@ -1678,7 +1662,7 @@ String String::removeCharacters (StringRef charactersToRemove) const
 
 String String::initialSectionContainingOnly (StringRef permittedCharacters) const
 {
-    for (CharPointerType t (text); ! t.isEmpty(); ++t)
+    for (CharPointer_UTF8 t (text); ! t.isEmpty(); ++t)
         if (permittedCharacters.text.indexOf (*t) < 0)
             return String (text, t);
 
@@ -1687,7 +1671,7 @@ String String::initialSectionContainingOnly (StringRef permittedCharacters) cons
 
 String String::initialSectionNotContaining (StringRef charactersToStopAt) const
 {
-    for (CharPointerType t (text); ! t.isEmpty(); ++t)
+    for (CharPointer_UTF8 t (text); ! t.isEmpty(); ++t)
         if (charactersToStopAt.text.indexOf (*t) >= 0)
             return String (text, t);
 
@@ -1696,7 +1680,7 @@ String String::initialSectionNotContaining (StringRef charactersToStopAt) const
 
 bool String::containsOnly (StringRef chars) const noexcept
 {
-    for (CharPointerType t (text); ! t.isEmpty();)
+    for (CharPointer_UTF8 t (text); ! t.isEmpty();)
         if (chars.text.indexOf (t.getAndAdvance()) < 0)
             return false;
 
@@ -1705,7 +1689,7 @@ bool String::containsOnly (StringRef chars) const noexcept
 
 bool String::containsAnyOf (StringRef chars) const noexcept
 {
-    for (CharPointerType t (text); ! t.isEmpty();)
+    for (CharPointer_UTF8 t (text); ! t.isEmpty();)
         if (chars.text.indexOf (t.getAndAdvance()) >= 0)
             return true;
 
@@ -1714,7 +1698,7 @@ bool String::containsAnyOf (StringRef chars) const noexcept
 
 bool String::containsNonWhitespaceChars() const noexcept
 {
-    for (CharPointerType t (text); ! t.isEmpty(); ++t)
+    for (CharPointer_UTF8 t (text); ! t.isEmpty(); ++t)
         if (! t.isWhitespace())
             return true;
 
@@ -1803,7 +1787,7 @@ int String::getTrailingIntValue() const noexcept
 {
     int n = 0;
     int mult = 1;
-    CharPointerType t (text.findTerminatingNull());
+    CharPointer_UTF8 t (text.findTerminatingNull());
 
     while (--t >= text)
     {
@@ -1827,9 +1811,9 @@ static const char hexDigits[] = "0123456789abcdef";
 template <typename Type>
 static String hexToString (Type v)
 {
-    String::CharPointerType::CharType buffer[32];
-    String::CharPointerType::CharType* const end = buffer + numElementsInArray (buffer) - 1;
-    String::CharPointerType::CharType* t = end;
+    CharPointer_UTF8::CharType buffer[32];
+    CharPointer_UTF8::CharType* const end = buffer + numElementsInArray (buffer) - 1;
+    CharPointer_UTF8::CharType* t = end;
     *t = 0;
 
     do
@@ -1839,8 +1823,8 @@ static String hexToString (Type v)
 
     } while (v != 0);
 
-    return String (String::CharPointerType (t),
-                   String::CharPointerType (end));
+    return String (CharPointer_UTF8 (t),
+                   CharPointer_UTF8 (end));
 }
 
 String String::toHexString (int number)       { return hexToString ((unsigned int) number); }
@@ -1856,10 +1840,10 @@ String String::toHexString (const void* const d, const int size, const int group
     if (groupSize > 0)
         numChars += size / groupSize;
 
-    String s (PreallocationBytes (sizeof (CharPointerType::CharType) * (size_t) numChars));
+    String s (PreallocationBytes (sizeof (CharPointer_UTF8::CharType) * (size_t) numChars));
 
     const unsigned char* data = static_cast<const unsigned char*> (d);
-    CharPointerType dest (s.text);
+    CharPointer_UTF8 dest (s.text);
 
     for (int i = 0; i < size; ++i)
     {
@@ -1919,7 +1903,24 @@ struct StringEncodingConverter<CharPointer_UTF8, CharPointer_UTF8>
     static CharPointer_UTF8 convert (const String& source) noexcept   { return CharPointer_UTF8 ((CharPointer_UTF8::CharType*) source.getCharPointer().getAddress()); }
 };
 
-CharPointer_UTF8  String::toUTF8()  const { return StringEncodingConverter<CharPointerType, CharPointer_UTF8 >::convert (*this); }
+CharPointer_UTF8  String::toUTF8()  const { return text; }
+
+#ifdef CARLA_OS_WIN
+std::wstring String::toUTF16() const
+{
+    if (isEmpty())
+        return L"";
+
+    const int len = MultiByteToWideChar (CP_UTF8, 0, toUTF8(), length() + 1, nullptr, 0);
+    CARLA_SAFE_ASSERT_RETURN(len > 0, L"");
+
+    std::wstring ret;
+    ret.resize(len);
+
+    MultiByteToWideChar (CP_UTF8, 0, toUTF8(), length(), &ret[0], len);
+    return ret;
+}
+#endif
 
 const char* String::toRawUTF8() const
 {
@@ -1948,7 +1949,7 @@ struct StringCopier
 
 size_t String::copyToUTF8 (CharPointer_UTF8::CharType* const buffer, size_t maxBufferSizeBytes) const noexcept
 {
-    return StringCopier<CharPointerType, CharPointer_UTF8>::copyToBuffer (text, buffer, maxBufferSizeBytes);
+    return StringCopier<CharPointer_UTF8, CharPointer_UTF8>::copyToBuffer (text, buffer, maxBufferSizeBytes);
 }
 
 //==============================================================================
@@ -2025,7 +2026,7 @@ String String::convertToPrecomposedUnicode() const
 #endif
 
 //==============================================================================
-StringRef::StringRef() noexcept  : text ((const String::CharPointerType::CharType*) "\0\0\0")
+StringRef::StringRef() noexcept  : text ((const CharPointer_UTF8::CharType*) "\0\0\0")
 {
 }
 
@@ -2050,7 +2051,7 @@ StringRef::StringRef (const char* stringLiteral) noexcept
     wassert (CharPointer_UTF8::isValidString (stringLiteral, std::numeric_limits<int>::max()));
 }
 
-StringRef::StringRef (String::CharPointerType stringLiteral) noexcept  : text (stringLiteral)
+StringRef::StringRef (CharPointer_UTF8 stringLiteral) noexcept  : text (stringLiteral)
 {
     wassert (stringLiteral.getAddress() != nullptr); // This must be a valid string literal, not a null pointer!!
 }

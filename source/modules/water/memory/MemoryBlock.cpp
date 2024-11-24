@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -87,22 +87,6 @@ MemoryBlock& MemoryBlock::operator= (const MemoryBlock& other)
     return *this;
 }
 
-#if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-MemoryBlock::MemoryBlock (MemoryBlock&& other) noexcept
-    : data (static_cast<HeapBlock<char>&&> (other.data)),
-      size (other.size)
-{
-}
-
-MemoryBlock& MemoryBlock::operator= (MemoryBlock&& other) noexcept
-{
-    data = static_cast<HeapBlock<char>&&> (other.data);
-    size = other.size;
-    return *this;
-}
-#endif
-
-
 //==============================================================================
 bool MemoryBlock::operator== (const MemoryBlock& other) const noexcept
 {
@@ -165,6 +149,13 @@ void MemoryBlock::swapWith (MemoryBlock& other) noexcept
 {
     std::swap (size, other.size);
     data.swapWith (other.data);
+}
+
+//==============================================================================
+void* MemoryBlock::release () noexcept
+{
+    size = 0;
+    return data.release();
 }
 
 //==============================================================================
@@ -327,7 +318,7 @@ void MemoryBlock::loadFromHexString (StringRef hex)
 {
     ensureSize ((size_t) hex.length() >> 1);
     char* dest = data;
-    String::CharPointerType t (hex.text);
+    CharPointer_UTF8 t (hex.text);
 
     for (;;)
     {

@@ -1,7 +1,7 @@
 /*
  * Cross-platform C++ library for Carla, based on Juce v4
  * Copyright (C) 2015-2016 ROLI Ltd.
- * Copyright (C) 2017-2018 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -33,18 +33,18 @@ HINSTANCE getCurrentModuleInstanceHandle() noexcept
     return currentModuleHandle;
 }
 
-CARLA_EXPORT
-BOOL WINAPI DllMain(HINSTANCE hInst, DWORD, LPVOID)
+# ifndef STATIC_PLUGIN_TARGET
+CARLA_PLUGIN_EXPORT
+BOOL WINAPI DllMain (HINSTANCE hInst, DWORD reason, LPVOID)
 {
-    currentModuleHandle = hInst;
+    if (reason == DLL_PROCESS_ATTACH)
+        currentModuleHandle = hInst;
     return 1;
 }
+# endif
 #endif
 
 }
-
-#include "containers/NamedValueSet.cpp"
-#include "containers/Variant.cpp"
 
 #include "files/DirectoryIterator.cpp"
 #include "files/File.cpp"
@@ -69,6 +69,7 @@ BOOL WINAPI DllMain(HINSTANCE hInst, DWORD, LPVOID)
 
 #include "streams/FileInputSource.cpp"
 #include "streams/InputStream.cpp"
+#include "streams/MemoryInputStream.cpp"
 #include "streams/MemoryOutputStream.cpp"
 #include "streams/OutputStream.cpp"
 

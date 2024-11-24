@@ -1,6 +1,6 @@
 /*
  * Carla State utils
- * Copyright (C) 2012-2017 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -34,18 +34,18 @@ struct CarlaStateSave {
         const char* name;
         const char* symbol;
         float       value;
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+       #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
         int16_t mappedControlIndex;
         uint8_t midiChannel;
         bool    mappedRangeValid;
         float   mappedMinimum;
         float   mappedMaximum;
-#endif
+       #endif
 
         Parameter() noexcept;
         ~Parameter() noexcept;
 
-        CARLA_DECLARE_NON_COPY_STRUCT(Parameter)
+        CARLA_DECLARE_NON_COPYABLE(Parameter)
     };
 
     typedef LinkedList<Parameter*> ParameterList;
@@ -60,7 +60,7 @@ struct CarlaStateSave {
         ~CustomData() noexcept;
         bool isValid() const noexcept;
 
-        CARLA_DECLARE_NON_COPY_STRUCT(CustomData)
+        CARLA_DECLARE_NON_COPYABLE(CustomData)
     };
 
     typedef LinkedList<CustomData*> CustomDataList;
@@ -76,7 +76,7 @@ struct CarlaStateSave {
     // saved during clone, rename or similar
     bool temporary;
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+   #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     bool   active;
     float  dryWet;
     float  volume;
@@ -84,7 +84,7 @@ struct CarlaStateSave {
     float  balanceRight;
     float  panning;
     int8_t ctrlChannel;
-#endif
+   #endif
 
     int32_t     currentProgramIndex;
     const char* currentProgramName;
@@ -102,7 +102,7 @@ struct CarlaStateSave {
     bool fillFromXmlElement(const water::XmlElement* const xmlElement);
     void dumpToMemoryStream(water::MemoryOutputStream& stream) const;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(CarlaStateSave)
+    CARLA_DECLARE_NON_COPYABLE(CarlaStateSave)
 };
 
 static inline

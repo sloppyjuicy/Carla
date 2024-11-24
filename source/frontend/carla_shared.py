@@ -1,20 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-# Common Carla code
-# Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License as
-# published by the Free Software Foundation; either version 2 of
-# the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# For a full copy of the GNU General Public License see the doc/GPL.txt file.
+# SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # ------------------------------------------------------------------------------------------------------------
 # Imports (Global)
@@ -36,24 +22,38 @@ except:
     haveSIGUSR1 = False
 
 # ------------------------------------------------------------------------------------------------------------
-# Imports (PyQt5)
+# Imports (PyQt)
 
-from PyQt5.Qt import PYQT_VERSION_STR
-from PyQt5.QtCore import qFatal, QT_VERSION, QT_VERSION_STR, qWarning, QDir, QSettings
-from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
+from qt_compat import qt_config
+
+if qt_config == 5:
+    # import changed in PyQt 5.15.8, so try both
+    try:
+        from PyQt5.Qt import PYQT_VERSION_STR
+    except ImportError:
+        from PyQt5.QtCore import PYQT_VERSION_STR
+
+    from PyQt5.QtCore import qFatal, QT_VERSION, QT_VERSION_STR, qWarning, QDir, QSettings
+    from PyQt5.QtGui import QIcon
+    from PyQt5.QtWidgets import QFileDialog, QMessageBox
+
+elif qt_config == 6:
+    from PyQt6.QtCore import qFatal, PYQT_VERSION_STR, QT_VERSION, QT_VERSION_STR, qWarning, QDir, QSettings
+    from PyQt6.QtGui import QIcon
+    from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
 # ------------------------------------------------------------------------------------------------------------
 # Imports (Custom)
 
 from carla_backend import (
-    kIs64bit, HAIKU, LINUX, MACOS, WINDOWS,
     MAX_DEFAULT_PARAMETERS,
     ENGINE_PROCESS_MODE_MULTIPLE_CLIENTS,
     ENGINE_PROCESS_MODE_PATCHBAY,
     ENGINE_TRANSPORT_MODE_INTERNAL,
     ENGINE_TRANSPORT_MODE_JACK
 )
+
+from common import kIs64bit, HAIKU, LINUX, MACOS, WINDOWS, VERSION
 
 # ------------------------------------------------------------------------------------------------------------
 # Config
@@ -67,11 +67,6 @@ X_DATADIR_X = None
 
 if WINDOWS:
     WINDIR = os.getenv("WINDIR")
-
-# ------------------------------------------------------------------------------------------------------------
-# Set Version
-
-VERSION = "2.3.2"
 
 # ------------------------------------------------------------------------------------------------------------
 # Set TMP
@@ -97,7 +92,7 @@ del envTMP
 envHOME = os.getenv("HOME")
 
 if envHOME is None:
-    if LINUX or MACOS:
+    if not WINDOWS:
         qWarning("HOME variable not set")
     HOME = QDir.toNativeSeparators(QDir.homePath())
 else:
@@ -183,6 +178,7 @@ CARLA_KEY_MAIN_USE_PRO_THEME    = "Main/UseProTheme"     # bool
 CARLA_KEY_MAIN_PRO_THEME_COLOR  = "Main/ProThemeColor"   # str
 CARLA_KEY_MAIN_REFRESH_INTERVAL = "Main/RefreshInterval" # int
 CARLA_KEY_MAIN_CONFIRM_EXIT     = "Main/ConfirmExit"     # bool
+CARLA_KEY_MAIN_CLASSIC_SKIN     = "Main/ClassicSkin"     # bool
 CARLA_KEY_MAIN_SHOW_LOGS        = "Main/ShowLogs"        # bool
 CARLA_KEY_MAIN_SYSTEM_ICONS     = "Main/SystemIcons"     # bool
 CARLA_KEY_MAIN_EXPERIMENTAL     = "Main/Experimental"    # bool
@@ -202,6 +198,10 @@ CARLA_KEY_CANVAS_FULL_REPAINTS     = "Canvas/FullRepaints"    # bool
 
 CARLA_KEY_ENGINE_DRIVER_PREFIX         = "Engine/Driver-"
 CARLA_KEY_ENGINE_AUDIO_DRIVER          = "Engine/AudioDriver"         # str
+CARLA_KEY_ENGINE_AUDIO_DEVICE          = "Engine/AudioDevice"         # str
+CARLA_KEY_ENGINE_BUFFER_SIZE           = "Engine/BufferSize"          # int
+CARLA_KEY_ENGINE_SAMPLE_RATE           = "Engine/SampleRate"          # int
+CARLA_KEY_ENGINE_TRIPLE_BUFFER         = "Engine/TripleBuffer"        # bool
 CARLA_KEY_ENGINE_PROCESS_MODE          = "Engine/ProcessMode"         # enum
 CARLA_KEY_ENGINE_TRANSPORT_MODE        = "Engine/TransportMode"       # enum
 CARLA_KEY_ENGINE_TRANSPORT_EXTRA       = "Engine/TransportExtra"      # str
@@ -230,8 +230,10 @@ CARLA_KEY_PATHS_DSSI   = "Paths/DSSI"
 CARLA_KEY_PATHS_LV2    = "Paths/LV2"
 CARLA_KEY_PATHS_VST2   = "Paths/VST2"
 CARLA_KEY_PATHS_VST3   = "Paths/VST3"
+CARLA_KEY_PATHS_CLAP   = "Paths/CLAP"
 CARLA_KEY_PATHS_SF2    = "Paths/SF2"
 CARLA_KEY_PATHS_SFZ    = "Paths/SFZ"
+CARLA_KEY_PATHS_JSFX   = "Paths/JSFX"
 
 CARLA_KEY_WINE_EXECUTABLE      = "Wine/Executable"     # str
 CARLA_KEY_WINE_AUTO_PREFIX     = "Wine/AutoPrefix"     # bool
@@ -259,6 +261,7 @@ CARLA_DEFAULT_MAIN_USE_PRO_THEME    = True
 CARLA_DEFAULT_MAIN_PRO_THEME_COLOR  = "Black"
 CARLA_DEFAULT_MAIN_REFRESH_INTERVAL = 20
 CARLA_DEFAULT_MAIN_CONFIRM_EXIT     = True
+CARLA_DEFAULT_MAIN_CLASSIC_SKIN     = False
 CARLA_DEFAULT_MAIN_SHOW_LOGS        = bool(not WINDOWS)
 CARLA_DEFAULT_MAIN_SYSTEM_ICONS     = False
 CARLA_DEFAULT_MAIN_EXPERIMENTAL     = False
@@ -293,11 +296,13 @@ CARLA_DEFAULT_AUDIO_BUFFER_SIZE     = 512
 CARLA_DEFAULT_AUDIO_SAMPLE_RATE     = 44100
 CARLA_DEFAULT_AUDIO_TRIPLE_BUFFER   = False
 
-if WINDOWS:
-    CARLA_DEFAULT_AUDIO_DRIVER = "DirectSound"
+if HAIKU:
+    CARLA_DEFAULT_AUDIO_DRIVER = "SDL"
 elif MACOS:
     CARLA_DEFAULT_AUDIO_DRIVER = "CoreAudio"
-elif os.path.exists("/usr/bin/jackd") or os.path.exists("/usr/bin/jackdbus"):
+elif WINDOWS:
+    CARLA_DEFAULT_AUDIO_DRIVER = "Windows Audio"
+elif os.path.exists("/usr/bin/jackd") or os.path.exists("/usr/bin/jackdbus") or os.path.exists("/usr/bin/pw-jack"):
     CARLA_DEFAULT_AUDIO_DRIVER = "JACK"
 else:
     CARLA_DEFAULT_AUDIO_DRIVER = "PulseAudio"
@@ -348,13 +353,16 @@ DEFAULT_DSSI_PATH   = ""
 DEFAULT_LV2_PATH    = ""
 DEFAULT_VST2_PATH   = ""
 DEFAULT_VST3_PATH   = ""
+DEFAULT_CLAP_PATH   = ""
 DEFAULT_SF2_PATH    = ""
 DEFAULT_SFZ_PATH    = ""
+DEFAULT_JSFX_PATH   = ""
 
 if WINDOWS:
     splitter = ";"
 
     APPDATA = os.getenv("APPDATA")
+    LOCALAPPDATA = os.getenv("LOCALAPPDATA", APPDATA)
     PROGRAMFILES = os.getenv("PROGRAMFILES")
     PROGRAMFILESx86 = os.getenv("PROGRAMFILES(x86)")
     COMMONPROGRAMFILES = os.getenv("COMMONPROGRAMFILES")
@@ -385,10 +393,17 @@ if WINDOWS:
     DEFAULT_VST2_PATH    = PROGRAMFILES + "\\VstPlugins"
     DEFAULT_VST2_PATH   += ";" + PROGRAMFILES + "\\Steinberg\\VstPlugins"
 
+    DEFAULT_JSFX_PATH    = APPDATA + "\\REAPER\\Effects"
+    #DEFAULT_JSFX_PATH   += ";" + PROGRAMFILES + "\\REAPER\\InstallData\\Effects"
+
     if kIs64bit:
         DEFAULT_VST2_PATH  += ";" + COMMONPROGRAMFILES + "\\VST2"
 
     DEFAULT_VST3_PATH    = COMMONPROGRAMFILES + "\\VST3"
+    DEFAULT_VST3_PATH   += ";" + LOCALAPPDATA + "\\Programs\\Common\\VST3"
+
+    DEFAULT_CLAP_PATH    = COMMONPROGRAMFILES + "\\CLAP"
+    DEFAULT_CLAP_PATH   += ";" + LOCALAPPDATA + "\\Programs\\Common\\CLAP"
 
     DEFAULT_SF2_PATH     = APPDATA + "\\SF2"
     DEFAULT_SFZ_PATH     = APPDATA + "\\SFZ"
@@ -398,9 +413,11 @@ if WINDOWS:
         DEFAULT_DSSI_PATH   += ";" + PROGRAMFILESx86 + "\\DSSI"
         DEFAULT_VST2_PATH   += ";" + PROGRAMFILESx86 + "\\VstPlugins"
         DEFAULT_VST2_PATH   += ";" + PROGRAMFILESx86 + "\\Steinberg\\VstPlugins"
+        #DEFAULT_JSFX_PATH   += ";" + PROGRAMFILESx86 + "\\REAPER\\InstallData\\Effects"
 
     if COMMONPROGRAMFILESx86:
         DEFAULT_VST3_PATH   += COMMONPROGRAMFILESx86 + "\\VST3"
+        DEFAULT_CLAP_PATH   += COMMONPROGRAMFILESx86 + "\\CLAP"
 
 elif HAIKU:
     splitter = ":"
@@ -422,6 +439,9 @@ elif HAIKU:
     DEFAULT_VST3_PATH    = HOME + "/.vst3"
     DEFAULT_VST3_PATH   += ":/system/add-ons/media/vst3plugins"
 
+    DEFAULT_CLAP_PATH    = HOME + "/.clap"
+    DEFAULT_CLAP_PATH   += ":/system/add-ons/media/clapplugins"
+
 elif MACOS:
     splitter = ":"
 
@@ -440,8 +460,16 @@ elif MACOS:
     DEFAULT_VST3_PATH    = HOME + "/Library/Audio/Plug-Ins/VST3"
     DEFAULT_VST3_PATH   += ":/Library/Audio/Plug-Ins/VST3"
 
+    DEFAULT_CLAP_PATH    = HOME + "/Library/Audio/Plug-Ins/CLAP"
+    DEFAULT_CLAP_PATH   += ":/Library/Audio/Plug-Ins/CLAP"
+
+    DEFAULT_JSFX_PATH    = HOME + "/Library/Application Support/REAPER/Effects"
+    #DEFAULT_JSFX_PATH   += ":/Applications/REAPER.app/Contents/InstallFiles/Effects"
+
 else:
     splitter = ":"
+
+    CONFIG_HOME = os.getenv("XDG_CONFIG_HOME", HOME + "/.config")
 
     DEFAULT_LADSPA_PATH  = HOME + "/.ladspa"
     DEFAULT_LADSPA_PATH += ":/usr/lib/ladspa"
@@ -467,8 +495,12 @@ else:
     DEFAULT_VST3_PATH   += ":/usr/lib/vst3"
     DEFAULT_VST3_PATH   += ":/usr/local/lib/vst3"
 
+    DEFAULT_CLAP_PATH    = HOME + "/.clap"
+    DEFAULT_CLAP_PATH   += ":/usr/lib/clap"
+    DEFAULT_CLAP_PATH   += ":/usr/local/lib/clap"
+
     DEFAULT_SF2_PATH     = HOME + "/.sounds/sf2"
-    DEFAULT_SF2_PATH    += HOME + ":/.sounds/sf3"
+    DEFAULT_SF2_PATH    += ":" + HOME + "/.sounds/sf3"
     DEFAULT_SF2_PATH    += ":/usr/share/sounds/sf2"
     DEFAULT_SF2_PATH    += ":/usr/share/sounds/sf3"
     DEFAULT_SF2_PATH    += ":/usr/share/soundfonts"
@@ -476,19 +508,30 @@ else:
     DEFAULT_SFZ_PATH     = HOME + "/.sounds/sfz"
     DEFAULT_SFZ_PATH    += ":/usr/share/sounds/sfz"
 
+    DEFAULT_JSFX_PATH    = CONFIG_HOME + "/REAPER/Effects"
+    #DEFAULT_JSFX_PATH   += ":" + "/opt/REAPER/InstallData/Effects"
+
 if not WINDOWS:
     winePrefix = os.getenv("WINEPREFIX")
 
     if not winePrefix:
         winePrefix = HOME + "/.wine"
 
-    if os.path.exists(winePrefix):
-        DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files/VstPlugins"
-        DEFAULT_VST3_PATH += ":" + winePrefix + "/drive_c/Program Files/Common Files/VST3"
+    DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files/VstPlugins"
+    DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files/VSTPlugins"
+    DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files/Steinberg/VstPlugins"
+    DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files/Steinberg/VSTPlugins"
+    DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files/Common Files/VST2"
+    DEFAULT_VST3_PATH += ":" + winePrefix + "/drive_c/Program Files/Common Files/VST3"
+    DEFAULT_CLAP_PATH += ":" + winePrefix + "/drive_c/Program Files/Common Files/CLAP"
 
-        if kIs64bit and os.path.exists(winePrefix + "/drive_c/Program Files (x86)"):
-            DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files (x86)/VstPlugins"
-            DEFAULT_VST3_PATH += ":" + winePrefix + "/drive_c/Program Files (x86)/Common Files/VST3"
+    if kIs64bit:
+        DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files (x86)/VstPlugins"
+        DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files (x86)/VSTPlugins"
+        DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files (x86)/Steinberg/VstPlugins"
+        DEFAULT_VST2_PATH += ":" + winePrefix + "/drive_c/Program Files (x86)/Steinberg/VSTPlugins"
+        DEFAULT_VST3_PATH += ":" + winePrefix + "/drive_c/Program Files (x86)/Common Files/VST3"
+        DEFAULT_CLAP_PATH += ":" + winePrefix + "/drive_c/Program Files (x86)/Common Files/CLAP"
 
     del winePrefix
 
@@ -521,8 +564,10 @@ if readEnvVars:
     CARLA_DEFAULT_LV2_PATH    = os.getenv("LV2_PATH",    DEFAULT_LV2_PATH).split(splitter)
     CARLA_DEFAULT_VST2_PATH   = os.getenv("VST_PATH",    DEFAULT_VST2_PATH).split(splitter)
     CARLA_DEFAULT_VST3_PATH   = os.getenv("VST3_PATH",   DEFAULT_VST3_PATH).split(splitter)
+    CARLA_DEFAULT_CLAP_PATH   = os.getenv("CLAP_PATH",   DEFAULT_CLAP_PATH).split(splitter)
     CARLA_DEFAULT_SF2_PATH    = os.getenv("SF2_PATH",    DEFAULT_SF2_PATH).split(splitter)
     CARLA_DEFAULT_SFZ_PATH    = os.getenv("SFZ_PATH",    DEFAULT_SFZ_PATH).split(splitter)
+    CARLA_DEFAULT_JSFX_PATH   = os.getenv("JSFX_PATH",   DEFAULT_JSFX_PATH).split(splitter)
 
 else:
     CARLA_DEFAULT_LADSPA_PATH = DEFAULT_LADSPA_PATH.split(splitter)
@@ -530,8 +575,10 @@ else:
     CARLA_DEFAULT_LV2_PATH    = DEFAULT_LV2_PATH.split(splitter)
     CARLA_DEFAULT_VST2_PATH   = DEFAULT_VST2_PATH.split(splitter)
     CARLA_DEFAULT_VST3_PATH   = DEFAULT_VST3_PATH.split(splitter)
+    CARLA_DEFAULT_CLAP_PATH   = DEFAULT_CLAP_PATH.split(splitter)
     CARLA_DEFAULT_SF2_PATH    = DEFAULT_SF2_PATH.split(splitter)
     CARLA_DEFAULT_SFZ_PATH    = DEFAULT_SFZ_PATH.split(splitter)
+    CARLA_DEFAULT_JSFX_PATH   = DEFAULT_JSFX_PATH.split(splitter)
 
 # ------------------------------------------------------------------------------------------------------------
 # Default Plugin Folders (cleanup)
@@ -541,6 +588,7 @@ del DEFAULT_DSSI_PATH
 del DEFAULT_LV2_PATH
 del DEFAULT_VST2_PATH
 del DEFAULT_VST3_PATH
+del DEFAULT_CLAP_PATH
 del DEFAULT_SF2_PATH
 del DEFAULT_SFZ_PATH
 
@@ -553,6 +601,7 @@ class CarlaObject():
         self.gui      = None  # Host Window
         self.nogui    = False # Skip UI
         self.term     = False # Terminated by OS signal
+        self.felib    = None  # Frontend lib object
         self.utils    = None  # Utils object
 
 gCarla = CarlaObject()
@@ -849,19 +898,6 @@ class QMessageBoxWithBetterWidth(QMessageBox):
             self.layout().setColumnMinimumWidth(2, width + 12)
 
         QMessageBox.showEvent(self, event)
-
-# ------------------------------------------------------------------------------------------------------------
-# Safer QSettings class, which does not throw if type mismatches
-
-class QSafeSettings(QSettings):
-    def value(self, key, defaultValue, valueType):
-        if not isinstance(defaultValue, valueType):
-            print("QSafeSettings.value() - defaultValue type mismatch for key", key)
-
-        try:
-            return QSettings.value(self, key, defaultValue, valueType)
-        except:
-            return defaultValue
 
 # ------------------------------------------------------------------------------------------------------------
 # Custom MessageBox

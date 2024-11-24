@@ -1,19 +1,5 @@
-/*
- * Carla Plugin Host
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "CarlaEngineGraph.hpp"
 #include "CarlaEngineInit.hpp"
@@ -290,7 +276,10 @@ public:
         }
 
         RtAudio::StreamOptions rtOptions;
-        rtOptions.flags = RTAUDIO_MINIMIZE_LATENCY | RTAUDIO_SCHEDULE_REALTIME;
+        rtOptions.flags = RTAUDIO_SCHEDULE_REALTIME;
+       #ifndef CARLA_OS_MAC
+        rtOptions.flags |= RTAUDIO_MINIMIZE_LATENCY;
+       #endif
         rtOptions.numberOfBuffers = pData->options.audioTripleBuffer ? 3 : 2;
         rtOptions.streamName = clientName;
         rtOptions.priority = 85;
@@ -442,6 +431,11 @@ public:
         return !hasError;
     }
 
+    bool hasIdleOnMainThread() const noexcept override
+    {
+        return true;
+    }
+
     bool isRunning() const noexcept override
     {
         return fAudio.isStreamOpen();
@@ -459,7 +453,7 @@ public:
 
     const char* getCurrentDriverName() const noexcept override
     {
-        return CarlaBackend::getRtAudioApiName(fAudio.getCurrentApi());
+        return CARLA_BACKEND_NAMESPACE::getRtAudioApiName(fAudio.getCurrentApi());
     }
 
     // -------------------------------------------------------------------
@@ -549,8 +543,8 @@ public:
             const MidiInPort& inPort(it.getValue(fallback));
             CARLA_SAFE_ASSERT_CONTINUE(inPort.port != nullptr);
 
-            const uint portId(extGraph.midiPorts.getPortId(true, inPort.name));
-            CARLA_SAFE_ASSERT_CONTINUE(portId < extGraph.midiPorts.ins.count());
+            const uint portId = extGraph.midiPorts.getPortIdFromName(true, inPort.name);
+            CARLA_SAFE_ASSERT_UINT_CONTINUE(portId < extGraph.midiPorts.ins.count(), portId);
 
             ConnectionToId connectionToId;
             connectionToId.setData(++(extGraph.connections.lastId), kExternalGraphGroupMidiIn, portId, kExternalGraphGroupCarla, kExternalGraphCarlaPortMidiIn);
@@ -575,8 +569,8 @@ public:
             const MidiOutPort& outPort(it.getValue(fallback));
             CARLA_SAFE_ASSERT_CONTINUE(outPort.port != nullptr);
 
-            const uint portId(extGraph.midiPorts.getPortId(false, outPort.name));
-            CARLA_SAFE_ASSERT_CONTINUE(portId < extGraph.midiPorts.outs.count());
+            const uint portId = extGraph.midiPorts.getPortIdFromName(false, outPort.name);
+            CARLA_SAFE_ASSERT_UINT_CONTINUE(portId < extGraph.midiPorts.outs.count(), portId);
 
             ConnectionToId connectionToId;
             connectionToId.setData(++(extGraph.connections.lastId), kExternalGraphGroupCarla, kExternalGraphCarlaPortMidiOut, kExternalGraphGroupMidiOut, portId);
@@ -1192,7 +1186,7 @@ const char* getRtAudioApiName(const uint index)
 
     CARLA_SAFE_ASSERT_RETURN(index < gRtAudioApis.size(), nullptr);
 
-    return CarlaBackend::getRtAudioApiName(gRtAudioApis[index]);
+    return CARLA_BACKEND_NAMESPACE::getRtAudioApiName(gRtAudioApis[index]);
 }
 
 const char* const* getRtAudioApiDeviceNames(const uint index)

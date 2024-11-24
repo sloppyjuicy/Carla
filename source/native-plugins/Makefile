@@ -14,6 +14,12 @@ include ../modules/Makefile.mk
 BUILD_C_FLAGS   += -I..
 BUILD_CXX_FLAGS += -I.. -I$(CWD)/modules
 
+ifneq ($(HAIKU),true)
+ifneq ($(WASM),true)
+BUILD_CXX_FLAGS += -pthread
+endif
+endif
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Set targets
 
@@ -95,38 +101,38 @@ debug:
 $(MODULEDIR)/$(MODULENAME).a: $(OBJS)
 	-@mkdir -p $(MODULEDIR)
 	@echo "Creating $(MODULENAME).a"
-	@rm -f $@
-	@$(AR) crs $@ $^
+	$(SILENT)rm -f $@
+	$(SILENT)$(AR) crs $@ $^
 
 $(MODULEDIR)/$(MODULENAME)_audiogain.a: $(OBJS_audiogain)
 	-@mkdir -p $(MODULEDIR)
 	@echo "Creating $(MODULENAME)_audiogain.a"
-	@rm -f $@
-	@$(AR) crs $@ $^
+	$(SILENT)rm -f $@
+	$(SILENT)$(AR) crs $@ $^
 
 $(MODULEDIR)/$(MODULENAME)_files.a: $(OBJS_files)
 	-@mkdir -p $(MODULEDIR)
 	@echo "Creating $(MODULENAME)_files.a"
-	@rm -f $@
-	@$(AR) crs $@ $^
+	$(SILENT)rm -f $@
+	$(SILENT)$(AR) crs $@ $^
 
 $(MODULEDIR)/$(MODULENAME)_miditools.a: $(OBJS_miditools)
 	-@mkdir -p $(MODULEDIR)
 	@echo "Creating $(MODULENAME)_miditools.a"
-	@rm -f $@
-	@$(AR) crs $@ $^
+	$(SILENT)rm -f $@
+	$(SILENT)$(AR) crs $@ $^
 
 # ---------------------------------------------------------------------------------------------------------------------
 
 $(OBJDIR)/%.c.o: %.c
 	-@mkdir -p $(OBJDIR)
 	@echo "Compiling $<"
-	@$(CC) $< $(BUILD_C_FLAGS) -c -o $@
+	$(SILENT)$(CC) $< $(BUILD_C_FLAGS) -c -o $@
 
 $(OBJDIR)/%.cpp.o: %.cpp
 	-@mkdir -p $(OBJDIR)
 	@echo "Compiling $<"
-	@$(CXX) $< $(BUILD_CXX_FLAGS) -c -o $@
+	$(SILENT)$(CXX) $< $(BUILD_CXX_FLAGS) -c -o $@
 
 # ---------------------------------------------------------------------------------------------------------------------
 

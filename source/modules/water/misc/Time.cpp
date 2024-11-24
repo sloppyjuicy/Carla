@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2023 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -27,12 +27,18 @@
 #include "../memory/Atomic.h"
 
 #include <ctime>
-#include <sys/time.h>
 
 #if defined(CARLA_OS_MAC)
 # include <mach/mach_time.h>
 #elif defined(CARLA_OS_WIN)
 # include <mmsystem.h>
+#endif
+
+#ifdef _MSC_VER
+# include <sys/timeb.h>
+# include <sys/types.h>
+#else
+# include <sys/time.h>
 #endif
 
 namespace water {
@@ -81,51 +87,29 @@ static uint32 water_millisecondsSinceStartup() noexcept
     return (uint32) timeGetTime();
 #else
     timespec t;
-# ifdef CLOCK_MONOTONIC_RAW
+   #ifdef CLOCK_MONOTONIC_RAW
     clock_gettime (CLOCK_MONOTONIC_RAW, &t);
-# else
+   #else
     clock_gettime (CLOCK_MONOTONIC, &t);
-# endif
+   #endif
 
     return (uint32) (t.tv_sec * 1000 + t.tv_nsec / 1000000);
 #endif
 }
 
 //==============================================================================
-Time::Time() noexcept  : millisSinceEpoch (0)
-{
-}
-
-Time::Time (const Time& other) noexcept  : millisSinceEpoch (other.millisSinceEpoch)
-{
-}
-
-Time::Time (const int64 ms) noexcept  : millisSinceEpoch (ms)
-{
-}
-
-Time::~Time() noexcept
-{
-}
-
-Time& Time::operator= (const Time& other) noexcept
-{
-    millisSinceEpoch = other.millisSinceEpoch;
-    return *this;
-}
-
-//==============================================================================
-
-Time Time::getCurrentTime() noexcept
-{
-    return Time (currentTimeMillis());
-}
 
 int64 Time::currentTimeMillis() noexcept
 {
+   #ifdef _MSC_VER
+    struct _timeb tb;
+    _ftime_s (&tb);
+    return ((int64) tb.time) * 1000 + tb.millitm;
+   #else
     struct timeval tv;
     gettimeofday (&tv, nullptr);
     return ((int64) tv.tv_sec) * 1000 + tv.tv_usec / 1000;
+   #endif
 }
 
 //==============================================================================

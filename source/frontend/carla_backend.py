@@ -20,9 +20,7 @@
 # Imports (Global)
 
 from abc import abstractmethod
-from platform import architecture
 from struct import pack
-from sys import platform, maxsize
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Imports (ctypes)
@@ -34,45 +32,18 @@ from ctypes import (
     CDLL, CFUNCTYPE, RTLD_GLOBAL, RTLD_LOCAL, POINTER
 )
 
-# ---------------------------------------------------------------------------------------------------------------------
-# 64bit check
+# ------------------------------------------------------------------------------------------------------------
+# Imports (Custom)
 
-kIs64bit = bool(architecture()[0] == "64bit" and maxsize > 2**32)
+from common import (
+    kIs64bit, HAIKU, LINUX, MACOS, WINDOWS, VERSION
+)
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Define custom types
 
 c_enum = c_int
 c_uintptr = c_uint64 if kIs64bit else c_uint32
-
-# ---------------------------------------------------------------------------------------------------------------------
-# Set Platform
-
-if platform == "darwin":
-    HAIKU   = False
-    LINUX   = False
-    MACOS   = True
-    WINDOWS = False
-elif "haiku" in platform:
-    HAIKU   = True
-    LINUX   = False
-    MACOS   = False
-    WINDOWS = False
-elif "linux" in platform:
-    HAIKU   = False
-    LINUX   = True
-    MACOS   = False
-    WINDOWS = False
-elif platform in ("win32", "win64", "cygwin"):
-    HAIKU   = False
-    LINUX   = False
-    MACOS   = False
-    WINDOWS = True
-else:
-    HAIKU   = False
-    LINUX   = False
-    MACOS   = False
-    WINDOWS = False
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Convert a ctypes c_char_p into a python string
@@ -300,8 +271,8 @@ PARAMETER_IS_LOGARITHMIC = 0x004
 # It can be viewed, changed and stored.
 PARAMETER_IS_ENABLED = 0x010
 
-# Parameter is automable (real-time safe).
-PARAMETER_IS_AUTOMABLE = 0x020
+# Parameter is automatable (real-time safe).
+PARAMETER_IS_AUTOMATABLE = 0x020
 
 # Parameter is read-only.
 # It cannot be changed.
@@ -484,6 +455,12 @@ PLUGIN_SFZ = 11
 # JACK application.
 PLUGIN_JACK = 12
 
+# JSFX plugin.
+PLUGIN_JSFX = 13
+
+# CLAP plugin.
+PLUGIN_CLAP = 14
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Plugin Category
 # Plugin category, which describes the functionality of a plugin.
@@ -604,6 +581,7 @@ ENGINE_CALLBACK_DEBUG = 0
 
 # A plugin has been added.
 # @a pluginId Plugin Id
+# @a value1   Plugin type
 # @a valueStr Plugin name
 ENGINE_CALLBACK_PLUGIN_ADDED = 1
 

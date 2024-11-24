@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2024 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -24,7 +24,6 @@
 */
 
 #include "DirectoryIterator.h"
-#include "../text/StringArray.h"
 
 namespace water {
 
@@ -69,11 +68,10 @@ bool DirectoryIterator::fileMatches (const StringArray& wildCards, const String&
 
 bool DirectoryIterator::next()
 {
-    return next (nullptr, nullptr, nullptr, nullptr, nullptr);
+    return next (nullptr, nullptr, nullptr);
 }
 
-bool DirectoryIterator::next (bool* const isDirResult, int64* const fileSize,
-                              Time* const modTime, Time* const creationTime, bool* const isReadOnly)
+bool DirectoryIterator::next (bool* const isDirResult, int64* const fileSize, bool* const isReadOnly)
 {
     for (;;)
     {
@@ -81,7 +79,7 @@ bool DirectoryIterator::next (bool* const isDirResult, int64* const fileSize,
 
         if (subIterator != nullptr)
         {
-            if (subIterator->next (isDirResult, fileSize, modTime, creationTime, isReadOnly))
+            if (subIterator->next (isDirResult, fileSize, isReadOnly))
                 return true;
 
             subIterator = nullptr;
@@ -90,8 +88,7 @@ bool DirectoryIterator::next (bool* const isDirResult, int64* const fileSize,
         String filename;
         bool isDirectory, shouldContinue = false;
 
-        while (fileFinder.next (filename, &isDirectory,
-                                fileSize, modTime, creationTime, isReadOnly))
+        while (fileFinder.next (filename, &isDirectory, fileSize, isReadOnly))
         {
             ++index;
 
@@ -146,20 +143,6 @@ const File& DirectoryIterator::getFile() const
     wassert (hasBeenAdvanced);
 
     return currentFile;
-}
-
-float DirectoryIterator::getEstimatedProgress() const
-{
-    if (totalNumFiles < 0)
-        totalNumFiles = File (path).getNumberOfChildFiles (File::findFilesAndDirectories);
-
-    if (totalNumFiles <= 0)
-        return 0.0f;
-
-    const float detailedIndex = (subIterator != nullptr) ? index + subIterator->getEstimatedProgress()
-                                                         : (float) index;
-
-    return detailedIndex / totalNumFiles;
 }
 
 }

@@ -1,6 +1,6 @@
 ﻿/*
  * Carla Plugin
- * Copyright (C) 2011-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2022 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -43,20 +43,20 @@ CARLA_BACKEND_START_NAMESPACE
 // -----------------------------------------------------------------------
 // Maximum pre-allocated events for some plugin types
 
-const ushort kPluginMaxMidiEvents = 512;
+constexpr const uint16_t kPluginMaxMidiEvents = 512;
 
 // -----------------------------------------------------------------------
 // Extra parameter hints, hidden from backend
 
-const uint PARAMETER_MAPPED_RANGES_SET = 0x10000;
-const uint PARAMETER_IS_STRICT_BOUNDS  = 0x20000;
-const uint PARAMETER_IS_TRIGGER        = 0x40000;
+constexpr const uint PARAMETER_MAPPED_RANGES_SET = 0x10000;
+constexpr const uint PARAMETER_IS_STRICT_BOUNDS  = 0x20000;
+constexpr const uint PARAMETER_IS_TRIGGER        = 0x40000;
 
 // -----------------------------------------------------------------------
 // Extra plugin hints, hidden from backend
 
-const uint PLUGIN_EXTRA_HINT_HAS_MIDI_IN  = 0x01;
-const uint PLUGIN_EXTRA_HINT_HAS_MIDI_OUT = 0x02;
+constexpr const uint PLUGIN_EXTRA_HINT_HAS_MIDI_IN  = 0x01;
+constexpr const uint PLUGIN_EXTRA_HINT_HAS_MIDI_OUT = 0x02;
 
 // -----------------------------------------------------------------------
 // Special parameters
@@ -142,7 +142,7 @@ struct PluginAudioData {
     void clear() noexcept;
     void initBuffers() const noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(PluginAudioData)
+    CARLA_DECLARE_NON_COPYABLE(PluginAudioData)
 };
 
 // -----------------------------------------------------------------------
@@ -163,7 +163,7 @@ struct PluginCVData {
     void clear() noexcept;
     void initBuffers() const noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(PluginCVData)
+    CARLA_DECLARE_NON_COPYABLE(PluginCVData)
 };
 
 // -----------------------------------------------------------------------
@@ -180,7 +180,7 @@ struct PluginEventData {
     void clear() noexcept;
     void initBuffers() const noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(PluginEventData)
+    CARLA_DECLARE_NON_COPYABLE(PluginEventData)
 };
 
 // -----------------------------------------------------------------------
@@ -199,7 +199,7 @@ struct PluginParameterData {
     float getFinalUnnormalizedValue(uint32_t parameterId, float normalizedValue) const noexcept;
     float getFinalValueWithMidiDelta(uint32_t parameterId, float value, int8_t delta) const noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(PluginParameterData)
+    CARLA_DECLARE_NON_COPYABLE(PluginParameterData)
 };
 
 // -----------------------------------------------------------------------
@@ -216,7 +216,7 @@ struct PluginProgramData {
     void createNew(uint32_t newCount);
     void clear() noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(PluginProgramData)
+    CARLA_DECLARE_NON_COPYABLE(PluginProgramData)
 };
 
 // -----------------------------------------------------------------------
@@ -232,7 +232,7 @@ struct PluginMidiProgramData {
     void clear() noexcept;
     const MidiProgramData& getCurrent() const noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(PluginMidiProgramData)
+    CARLA_DECLARE_NON_COPYABLE(PluginMidiProgramData)
 };
 
 // -----------------------------------------------------------------------
@@ -298,7 +298,7 @@ struct CarlaPlugin::ProtectedData {
         void appendNonRT(const ExternalMidiNote& note) noexcept;
         void clear() noexcept;
 
-        CARLA_DECLARE_NON_COPY_STRUCT(ExternalNotes)
+        CARLA_DECLARE_NON_COPYABLE(ExternalNotes)
 
     } extNotes;
 
@@ -316,7 +316,7 @@ struct CarlaPlugin::ProtectedData {
         void recreateBuffers(uint32_t newChannels, uint32_t newFrames);
 #endif
 
-        CARLA_DECLARE_NON_COPY_STRUCT(Latency)
+        CARLA_DECLARE_NON_COPYABLE(Latency)
 
     } latency;
 
@@ -368,7 +368,7 @@ struct CarlaPlugin::ProtectedData {
         CarlaMutex dataPendingMutex;
         CarlaMutex poolMutex;
 
-        CARLA_DECLARE_NON_COPY_CLASS(PostRtEvents)
+        CARLA_DECLARE_NON_COPYABLE(PostRtEvents)
 
     } postRtEvents;
 
@@ -381,7 +381,7 @@ struct CarlaPlugin::ProtectedData {
         void append(const PluginPostRtEvent& event) noexcept;
         void clear() noexcept;
 
-        CARLA_DECLARE_NON_COPY_STRUCT(PostUiEvents)
+        CARLA_DECLARE_NON_COPYABLE(PostUiEvents)
 
     } postUiEvents;
 
@@ -392,10 +392,11 @@ struct CarlaPlugin::ProtectedData {
         float balanceLeft;
         float balanceRight;
         float panning;
+        float* extraBuffer;
 
         PostProc() noexcept;
 
-        CARLA_DECLARE_NON_COPY_STRUCT(PostProc)
+        CARLA_DECLARE_NON_COPYABLE(PostProc)
 
     } postProc;
 #endif
@@ -457,7 +458,7 @@ struct CarlaPlugin::ProtectedData {
 
 #ifdef CARLA_PROPER_CPP11_SUPPORT
     ProtectedData() = delete;
-    CARLA_DECLARE_NON_COPY_STRUCT(ProtectedData);
+    CARLA_DECLARE_NON_COPYABLE(ProtectedData);
 #endif
     CARLA_LEAK_DETECTOR(ProtectedData);
 };

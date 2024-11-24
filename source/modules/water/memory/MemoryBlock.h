@@ -68,11 +68,6 @@ public:
     */
     MemoryBlock& operator= (const MemoryBlock&);
 
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    MemoryBlock (MemoryBlock&&) noexcept;
-    MemoryBlock& operator= (MemoryBlock&&) noexcept;
-   #endif
-
     //==============================================================================
     /** Compares two memory blocks.
         @returns true only if the two blocks are the same size and have identical contents.
@@ -196,6 +191,10 @@ public:
         No actual copying is required for this, so it's very fast.
     */
     void swapWith (MemoryBlock& other) noexcept;
+
+    //==============================================================================
+    /** Release this object's data ownership, returning the data pointer. */
+    void* release () noexcept;
 
     //==============================================================================
     /** Attempts to parse the contents of the block as a zero-terminated UTF8 string. */

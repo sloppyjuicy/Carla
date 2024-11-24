@@ -1,6 +1,6 @@
 /*
  * Carla Plugin Host
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2022 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -18,7 +18,7 @@
 #ifndef CARLA_ENGINE_INTERNAL_HPP_INCLUDED
 #define CARLA_ENGINE_INTERNAL_HPP_INCLUDED
 
-#include "CarlaEngineThread.hpp"
+#include "CarlaEngineRunner.hpp"
 #include "CarlaEngineUtils.hpp"
 #include "CarlaPlugin.hpp"
 #include "LinkedList.hpp"
@@ -64,7 +64,7 @@ struct EngineInternalEvents {
     ~EngineInternalEvents() noexcept;
     void clear() noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(EngineInternalEvents)
+    CARLA_DECLARE_NON_COPYABLE(EngineInternalEvents)
 };
 
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
@@ -80,7 +80,9 @@ public:
     EngineInternalGraph(CarlaEngine* engine) noexcept;
     ~EngineInternalGraph() noexcept;
 
-    void create(uint32_t audioIns, uint32_t audioOuts, uint32_t cvIns, uint32_t cvOuts);
+    void create(uint32_t audioIns, uint32_t audioOuts,
+                uint32_t cvIns, uint32_t cvOuts,
+                bool withMidiIn = true, bool withMidiOut = true);
     void destroy() noexcept;
 
     void setBufferSize(uint32_t bufferSize);
@@ -117,7 +119,7 @@ public:
     void renamePlugin(CarlaPluginPtr plugin, const char* newName);
     void switchPlugins(CarlaPluginPtr pluginA, CarlaPluginPtr pluginB);
     void removePlugin(CarlaPluginPtr plugin);
-    void removeAllPlugins();
+    void removeAllPlugins(bool aboutToClose);
 
     bool isUsingExternalHost() const noexcept;
     bool isUsingExternalOSC() const noexcept;
@@ -137,7 +139,7 @@ private:
     CarlaEngine* const kEngine;
 
     CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_STRUCT(EngineInternalGraph)
+    CARLA_DECLARE_NON_COPYABLE(EngineInternalGraph)
 };
 #endif // BUILD_BRIDGE_ALTERNATIVE_ARCH
 
@@ -174,7 +176,7 @@ private:
 
         Hylia();
         ~Hylia();
-        CARLA_DECLARE_NON_COPY_STRUCT(Hylia)
+        CARLA_DECLARE_NON_COPYABLE(Hylia)
     } hylia;
 #endif
 
@@ -188,7 +190,7 @@ private:
     friend class CarlaEngineJack;
     void fillJackTimeInfo(jack_position_t* pos, uint32_t newFrames) noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(EngineInternalTime)
+    CARLA_DECLARE_NON_COPYABLE(EngineInternalTime)
 };
 
 // -----------------------------------------------------------------------
@@ -202,6 +204,27 @@ enum EnginePostAction {
     kEnginePostActionSwitchPlugins // switch between 2 plugins
 #endif
 };
+
+static inline
+const char* EnginePostAction2Str(const EnginePostAction action)
+{
+    switch (action)
+    {
+    case kEnginePostActionNull:
+        return "kEnginePostActionNull";
+    case kEnginePostActionZeroCount:
+        return "kEnginePostActionZeroCount";
+#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+    case kEnginePostActionRemovePlugin:
+        return "kEnginePostActionRemovePlugin";
+    case kEnginePostActionSwitchPlugins:
+        return "kEnginePostActionSwitchPlugins";
+#endif
+    }
+
+    carla_stderr("CarlaBackend::EnginePostAction2Str(%i) - invalid action", action);
+    return nullptr;
+}
 
 struct EngineNextAction {
     EnginePostAction opcode;
@@ -218,7 +241,7 @@ struct EngineNextAction {
     ~EngineNextAction() noexcept;
     void clearAndReset() noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(EngineNextAction)
+    CARLA_DECLARE_NON_COPYABLE(EngineNextAction)
 };
 
 // -----------------------------------------------------------------------
@@ -244,7 +267,7 @@ struct EnginePluginData {
 // CarlaEngineProtectedData
 
 struct CarlaEngine::ProtectedData {
-    CarlaEngineThread thread;
+    CarlaEngineRunner runner;
 
 #if defined(HAVE_LIBLO) && !defined(BUILD_BRIDGE)
     CarlaEngineOsc osc;
@@ -268,7 +291,7 @@ struct CarlaEngine::ProtectedData {
     uint32_t bufferSize;
     double   sampleRate;
 
-    bool aboutToClose;    // don't re-activate thread if true
+    bool aboutToClose;    // don't re-activate runner if true
     int  isIdling;        // don't allow any operations while idling
     uint curPluginCount;  // number of plugins loaded (0...max)
     uint maxPluginNumber; // number of plugins allowed (0, 16, 99 or 255)
@@ -288,6 +311,8 @@ struct CarlaEngine::ProtectedData {
     float dspLoad;
 #endif
     float peaks[4];
+
+    CarlaMutex pluginsToDeleteMutex;
     std::vector<CarlaPluginPtr> pluginsToDelete;
 
     EngineInternalEvents events;
@@ -323,7 +348,7 @@ struct CarlaEngine::ProtectedData {
 
 #ifdef CARLA_PROPER_CPP11_SUPPORT
     ProtectedData() = delete;
-    CARLA_DECLARE_NON_COPY_STRUCT(ProtectedData)
+    CARLA_DECLARE_NON_COPYABLE(ProtectedData)
 #endif
 };
 
@@ -342,7 +367,7 @@ private:
     int64_t prevTime;
 
     CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(PendingRtEventsRunner)
+    CARLA_DECLARE_NON_COPYABLE(PendingRtEventsRunner)
 };
 
 // -----------------------------------------------------------------------
@@ -357,23 +382,23 @@ private:
     CarlaEngine::ProtectedData* const pData;
 
     CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(ScopedActionLock)
+    CARLA_DECLARE_NON_COPYABLE(ScopedActionLock)
 };
 
 // -----------------------------------------------------------------------
 
-class ScopedThreadStopper
+class ScopedRunnerStopper
 {
 public:
-    ScopedThreadStopper(CarlaEngine* engine) noexcept;
-    ~ScopedThreadStopper() noexcept;
+    ScopedRunnerStopper(CarlaEngine* engine) noexcept;
+    ~ScopedRunnerStopper() noexcept;
 
 private:
     CarlaEngine* const engine;
     CarlaEngine::ProtectedData* const pData;
 
     CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(ScopedThreadStopper)
+    CARLA_DECLARE_NON_COPYABLE(ScopedRunnerStopper)
 };
 
 // -----------------------------------------------------------------------

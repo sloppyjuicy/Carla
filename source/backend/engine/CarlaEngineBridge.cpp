@@ -1,31 +1,24 @@
-﻿/*
- * Carla Plugin Host
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+﻿// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef BUILD_BRIDGE
 # error This file should not be compiled if not building bridge
 #endif
 
+// must be first so we can undef CARLA_SAFE_*_RETURN_ERR* macros
+#include "CarlaPluginInternal.hpp"
+#undef CARLA_SAFE_ASSERT_RETURN_ERR
+#undef CARLA_SAFE_ASSERT_RETURN_ERRN
+#undef CARLA_SAFE_EXCEPTION_RETURN_ERR
+#undef CARLA_SAFE_EXCEPTION_RETURN_ERRN
+
 #include "CarlaEngineClient.hpp"
 #include "CarlaEngineInit.hpp"
-#include "CarlaPlugin.hpp"
 
 #include "CarlaBackendUtils.hpp"
 #include "CarlaBase64Utils.hpp"
 #include "CarlaBridgeUtils.hpp"
+#include "CarlaTimeUtils.hpp"
 #include "CarlaMIDI.h"
 
 #ifdef __SSE2_MATH__
@@ -41,19 +34,8 @@
 using water::File;
 using water::MemoryBlock;
 using water::String;
-using water::Time;
 
 CARLA_BACKEND_START_NAMESPACE
-
-// -----------------------------------------------------------------------
-
-// just want to access private options...
-struct CarlaPlugin::ProtectedData {
-    CarlaEngine* const engine;
-    CarlaEngineClient* client;
-    uint id, hints, options;
-    // ...etc
-};
 
 // -----------------------------------------------------------------------
 // Bridge Engine client
@@ -92,7 +74,42 @@ protected:
 private:
     LatencyChangedCallback* const fLatencyCallback;
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaEngineBridgeClient)
+    CARLA_DECLARE_NON_COPYABLE(CarlaEngineBridgeClient)
+};
+
+// -------------------------------------------------------------------
+
+struct BridgeTextReader {
+    char* text;
+
+    BridgeTextReader(BridgeNonRtClientControl& nonRtClientCtrl)
+        : text(nullptr)
+    {
+        const uint32_t size = nonRtClientCtrl.readUInt();
+        CARLA_SAFE_ASSERT_RETURN(size != 0,);
+
+        text = new char[size + 1];
+        nonRtClientCtrl.readCustomData(text, size);
+        text[size] = '\0';
+    }
+
+    BridgeTextReader(BridgeNonRtClientControl& nonRtClientCtrl, const uint32_t size)
+        : text(nullptr)
+    {
+        text = new char[size + 1];
+
+        if (size != 0)
+            nonRtClientCtrl.readCustomData(text, size);
+
+        text[size] = '\0';
+    }
+
+    ~BridgeTextReader() noexcept
+    {
+        delete[] text;
+    }
+
+    CARLA_DECLARE_NON_COPYABLE(BridgeTextReader)
 };
 
 // -------------------------------------------------------------------
@@ -116,7 +133,8 @@ public:
           fClosingDown(false),
           fIsOffline(false),
           fFirstIdle(true),
-          fLastPingTime(-1)
+          fBridgeVersion(0),
+          fLastPingTime(UINT32_MAX)
     {
         carla_debug("CarlaEngineBridge::CarlaEngineBridge(\"%s\", \"%s\", \"%s\", \"%s\")", audioPoolBaseName, rtClientBaseName, nonRtClientBaseName, nonRtServerBaseName);
     }
@@ -264,13 +282,18 @@ public:
     bool close() override
     {
         carla_debug("CarlaEngineBridge::close()");
-        fLastPingTime = -1;
+        fLastPingTime = UINT32_MAX;
 
         CarlaEngine::close();
 
         stopThread(5000);
         clear();
 
+        return true;
+    }
+
+    bool hasIdleOnMainThread() const noexcept override
+    {
         return true;
     }
 
@@ -340,13 +363,12 @@ public:
             return;
         }
 
-        const bool wasFirstIdle(fFirstIdle);
+        const bool wasFirstIdle = fFirstIdle;
 
         if (wasFirstIdle)
         {
             fFirstIdle = false;
-            fLastPingTime = Time::currentTimeMillis();
-            CARLA_SAFE_ASSERT(fLastPingTime > 0);
+            fLastPingTime = carla_gettime_ms();
 
             char bufStr[STR_MAX+1];
             carla_zeroChars(bufStr, STR_MAX+1);
@@ -399,6 +421,8 @@ public:
 
                 fShmNonRtServerControl.commitWrite();
             }
+
+            fShmNonRtServerControl.waitIfDataIsReachingLimit();
 
             // kPluginBridgeNonRtServerAudioCount
             {
@@ -469,7 +493,7 @@ public:
             fShmNonRtServerControl.waitIfDataIsReachingLimit();
 
             // kPluginBridgeNonRtServerParameter*
-            if (const uint32_t count = std::min(pData->options.maxParameters, plugin->getParameterCount()))
+            if (const uint32_t count = plugin->getParameterCount())
             {
                 // uint/count
                 fShmNonRtServerControl.writeOpcode(kPluginBridgeNonRtServerParameterCount);
@@ -619,7 +643,7 @@ public:
             fShmNonRtServerControl.waitIfDataIsReachingLimit();
 
             carla_stdout("Carla Bridge Ready!");
-            fLastPingTime = Time::currentTimeMillis();
+            fLastPingTime = carla_gettime_ms();
         }
 
         // send parameter outputs
@@ -648,7 +672,7 @@ public:
             handleNonRtData();
         } CARLA_SAFE_EXCEPTION("handleNonRtData");
 
-        if (fLastPingTime > 0 && Time::currentTimeMillis() > fLastPingTime + 30000 && ! wasFirstIdle)
+        if (fLastPingTime != UINT32_MAX && carla_gettime_ms() > fLastPingTime + 30000 && ! wasFirstIdle)
         {
             carla_stderr("Did not receive ping message from server for 30 secs, closing...");
             signalThreadShouldExit();
@@ -715,10 +739,22 @@ public:
             }
             break;
 
+        case ENGINE_CALLBACK_EMBED_UI_RESIZED: {
+            CARLA_SAFE_ASSERT_BREAK(value1 > 1);
+            CARLA_SAFE_ASSERT_BREAK(value2 > 1);
+
+            const CarlaMutexLocker _cml(fShmNonRtServerControl.mutex);
+
+            fShmNonRtServerControl.writeOpcode(kPluginBridgeNonRtServerResizeEmbedUI);
+            fShmNonRtServerControl.writeUInt(static_cast<uint>(value1));
+            fShmNonRtServerControl.writeUInt(static_cast<uint>(value2));
+            fShmNonRtServerControl.commitWrite();
+        }   break;
+
         case ENGINE_CALLBACK_RELOAD_PARAMETERS:
             if (const CarlaPluginPtr plugin = pData->plugins[0].plugin)
             {
-                if (const uint32_t count = std::min(pData->options.maxParameters, plugin->getParameterCount()))
+                if (const uint32_t count = plugin->getParameterCount())
                 {
                     const CarlaMutexLocker _cml(fShmNonRtServerControl.mutex);
 
@@ -773,8 +809,9 @@ public:
             }
 #endif
 
-            if (opcode != kPluginBridgeNonRtClientNull && opcode != kPluginBridgeNonRtClientPingOnOff && fLastPingTime > 0)
-                fLastPingTime = Time::currentTimeMillis();
+            if (opcode != kPluginBridgeNonRtClientNull &&
+                opcode != kPluginBridgeNonRtClientPingOnOff && fLastPingTime != UINT32_MAX)
+                fLastPingTime = carla_gettime_ms();
 
             switch (opcode)
             {
@@ -782,9 +819,9 @@ public:
                 break;
 
             case kPluginBridgeNonRtClientVersion: {
-                const uint apiVersion = fShmNonRtServerControl.readUInt();
-                CARLA_SAFE_ASSERT_UINT2(apiVersion >= CARLA_PLUGIN_BRIDGE_API_VERSION_MINIMUM,
-                                        apiVersion, CARLA_PLUGIN_BRIDGE_API_VERSION_MINIMUM);
+                fBridgeVersion = fShmNonRtServerControl.readUInt();
+                CARLA_SAFE_ASSERT_UINT2(fBridgeVersion >= CARLA_PLUGIN_BRIDGE_API_VERSION_MINIMUM,
+                                        fBridgeVersion, CARLA_PLUGIN_BRIDGE_API_VERSION_MINIMUM);
             }   break;
 
             case kPluginBridgeNonRtClientPing: {
@@ -794,11 +831,9 @@ public:
                 fShmNonRtServerControl.commitWrite();
             }   break;
 
-            case kPluginBridgeNonRtClientPingOnOff: {
-                const uint32_t onOff(fShmNonRtClientControl.readBool());
-
-                fLastPingTime = onOff ? Time::currentTimeMillis() : -1;
-            }   break;
+            case kPluginBridgeNonRtClientPingOnOff:
+                fLastPingTime = fShmNonRtClientControl.readBool() ? carla_gettime_ms() : UINT32_MAX;
+                break;
 
             case kPluginBridgeNonRtClientActivate:
                 if (plugin->isEnabled())
@@ -870,43 +905,68 @@ public:
             }
 
             case kPluginBridgeNonRtClientSetCustomData: {
+                const uint32_t maxLocalValueLen = fBridgeVersion >= 10 ? 4096 : 16384;
+
                 // type
-                const uint32_t typeSize(fShmNonRtClientControl.readUInt());
-                char typeStr[typeSize+1];
-                carla_zeroChars(typeStr, typeSize+1);
-                fShmNonRtClientControl.readCustomData(typeStr, typeSize);
+                const BridgeTextReader type(fShmNonRtClientControl);
 
                 // key
-                const uint32_t keySize(fShmNonRtClientControl.readUInt());
-                char keyStr[keySize+1];
-                carla_zeroChars(keyStr, keySize+1);
-                fShmNonRtClientControl.readCustomData(keyStr, keySize);
+                const BridgeTextReader key(fShmNonRtClientControl);
 
                 // value
-                const uint32_t valueSize(fShmNonRtClientControl.readUInt());
-                char valueStr[valueSize+1];
-                carla_zeroChars(valueStr, valueSize+1);
+                const uint32_t valueSize = fShmNonRtClientControl.readUInt();
 
                 if (valueSize > 0)
-                    fShmNonRtClientControl.readCustomData(valueStr, valueSize);
+                {
+                    if (valueSize > maxLocalValueLen)
+                    {
+                        const BridgeTextReader bigValueFilePathTry(fShmNonRtClientControl);
 
-                if (plugin->isEnabled())
-                    plugin->setCustomData(typeStr, keyStr, valueStr, true);
+                        CARLA_SAFE_ASSERT_BREAK(bigValueFilePathTry.text[0] != '\0');
+                        if (! plugin->isEnabled()) break;
+
+                        String bigValueFilePath(bigValueFilePathTry.text);
+
+#ifdef CARLA_OS_WIN
+                        // check if running under Wine
+                        if (bigValueFilePath.startsWith("/"))
+                            bigValueFilePath = bigValueFilePath.replaceSection(0, 1, "Z:\\").replace("/", "\\");
+#endif
+
+                        File bigValueFile(bigValueFilePath.toRawUTF8());
+                        CARLA_SAFE_ASSERT_BREAK(bigValueFile.existsAsFile());
+
+                        plugin->setCustomData(type.text, key.text, bigValueFile.loadFileAsString().toRawUTF8(), true);
+
+                        bigValueFile.deleteFile();
+                    }
+                    else
+                    {
+                        const BridgeTextReader value(fShmNonRtClientControl, valueSize);
+
+                        if (plugin->isEnabled())
+                            plugin->setCustomData(type.text, key.text, value.text, true);
+                    }
+                }
+                else
+                {
+                    if (plugin->isEnabled())
+                        plugin->setCustomData(type.text, key.text, "", true);
+                }
+
                 break;
             }
 
             case kPluginBridgeNonRtClientSetChunkDataFile: {
-                const uint32_t size(fShmNonRtClientControl.readUInt());
+                const uint32_t size = fShmNonRtClientControl.readUInt();
                 CARLA_SAFE_ASSERT_BREAK(size > 0);
 
-                char chunkFilePathTry[size+1];
-                carla_zeroChars(chunkFilePathTry, size+1);
-                fShmNonRtClientControl.readCustomData(chunkFilePathTry, size);
+                const BridgeTextReader chunkFilePathTry(fShmNonRtClientControl, size);
 
-                CARLA_SAFE_ASSERT_BREAK(chunkFilePathTry[0] != '\0');
+                CARLA_SAFE_ASSERT_BREAK(chunkFilePathTry.text[0] != '\0');
                 if (! plugin->isEnabled()) break;
 
-                String chunkFilePath(chunkFilePathTry);
+                String chunkFilePath(chunkFilePathTry.text);
 
 #ifdef CARLA_OS_WIN
                 // check if running under Wine
@@ -914,7 +974,7 @@ public:
                     chunkFilePath = chunkFilePath.replaceSection(0, 1, "Z:\\").replace("/", "\\");
 #endif
 
-                File chunkFile(chunkFilePath);
+                File chunkFile(chunkFilePath.toRawUTF8());
                 CARLA_SAFE_ASSERT_BREAK(chunkFile.existsAsFile());
 
                 String chunkDataBase64(chunkFile.loadFileAsString());
@@ -957,14 +1017,9 @@ public:
             }
 
             case kPluginBridgeNonRtClientSetWindowTitle: {
-                const uint32_t size = fShmNonRtClientControl.readUInt();
-                CARLA_SAFE_ASSERT_BREAK(size > 0);
+                const BridgeTextReader title(fShmNonRtClientControl);
 
-                char title[size+1];
-                carla_zeroChars(title, size+1);
-                fShmNonRtClientControl.readCustomData(title, size);
-
-                plugin->setCustomUITitle(title);
+                plugin->setCustomUITitle(title.text);
                 break;
             }
 
@@ -1015,6 +1070,8 @@ public:
 
                 plugin->prepareForSave(false);
 
+                const uint32_t maxLocalValueLen = fBridgeVersion >= 10 ? 4096 : 16384;
+
                 for (uint32_t i=0, count=plugin->getCustomDataCount(); i<count; ++i)
                 {
                     const CustomData& cdata(plugin->getCustomData(i));
@@ -1022,12 +1079,15 @@ public:
                     if (std::strcmp(cdata.type, CUSTOM_DATA_TYPE_PROPERTY) == 0)
                         continue;
 
-                    const uint32_t typeLen(static_cast<uint32_t>(std::strlen(cdata.type)));
-                    const uint32_t keyLen(static_cast<uint32_t>(std::strlen(cdata.key)));
-                    const uint32_t valueLen(static_cast<uint32_t>(std::strlen(cdata.value)));
+                    const uint32_t typeLen  = static_cast<uint32_t>(std::strlen(cdata.type));
+                    const uint32_t keyLen   = static_cast<uint32_t>(std::strlen(cdata.key));
+                    const uint32_t valueLen = static_cast<uint32_t>(std::strlen(cdata.value));
 
                     {
                         const CarlaMutexLocker _cml(fShmNonRtServerControl.mutex);
+
+                        if (valueLen > maxLocalValueLen)
+                            fShmNonRtServerControl.waitIfDataIsReachingLimit();
 
                         fShmNonRtServerControl.writeOpcode(kPluginBridgeNonRtServerSetCustomData);
 
@@ -1040,7 +1100,31 @@ public:
                         fShmNonRtServerControl.writeUInt(valueLen);
 
                         if (valueLen > 0)
-                            fShmNonRtServerControl.writeCustomData(cdata.value, valueLen);
+                        {
+                            if (valueLen > maxLocalValueLen)
+                            {
+                                String filePath(File::getSpecialLocation(File::tempDirectory).getFullPathName());
+
+                                filePath += CARLA_OS_SEP_STR ".CarlaCustomData_";
+                                filePath += fShmAudioPool.getFilenameSuffix();
+
+                                if (File(filePath.toRawUTF8()).replaceWithText(cdata.value))
+                                {
+                                    const uint32_t ulength(static_cast<uint32_t>(filePath.length()));
+
+                                    fShmNonRtServerControl.writeUInt(ulength);
+                                    fShmNonRtServerControl.writeCustomData(filePath.toRawUTF8(), ulength);
+                                }
+                                else
+                                {
+                                    fShmNonRtServerControl.writeUInt(0);
+                                }
+                            }
+                            else
+                            {
+                                fShmNonRtServerControl.writeCustomData(cdata.value, valueLen);
+                            }
+                        }
 
                         fShmNonRtServerControl.commitWrite();
                         fShmNonRtServerControl.waitIfDataIsReachingLimit();
@@ -1062,7 +1146,7 @@ public:
                         filePath += CARLA_OS_SEP_STR ".CarlaChunk_";
                         filePath += fShmAudioPool.getFilenameSuffix();
 
-                        if (File(filePath).replaceWithText(dataBase64.buffer()))
+                        if (File(filePath.toRawUTF8()).replaceWithText(dataBase64.buffer()))
                         {
                             const uint32_t ulength(static_cast<uint32_t>(filePath.length()));
 
@@ -1100,9 +1184,27 @@ public:
                     plugin->showCustomUI(false);
                 break;
 
+            case kPluginBridgeNonRtClientEmbedUI: {
+                const uint64_t winId = fShmNonRtClientControl.readULong();
+                uint64_t resp = 0;
+
+                if (plugin->isEnabled())
+                    resp = reinterpret_cast<uint64_t>(plugin->embedCustomUI(reinterpret_cast<void*>(winId)));
+
+                if (resp == 0)
+                    resp = 1;
+
+                const CarlaMutexLocker _cml(fShmNonRtServerControl.mutex);
+
+                fShmNonRtServerControl.writeOpcode(kPluginBridgeNonRtServerRespEmbedUI);
+                fShmNonRtServerControl.writeULong(resp);
+                fShmNonRtServerControl.commitWrite();
+                break;
+            }
+
             case kPluginBridgeNonRtClientUiParameterChange: {
-                const uint32_t index(fShmNonRtClientControl.readUInt());
-                const float    value(fShmNonRtClientControl.readFloat());
+                const uint32_t index = fShmNonRtClientControl.readUInt();
+                const float    value = fShmNonRtClientControl.readFloat();
 
                 if (plugin->isEnabled())
                     plugin->uiParameterChange(index, value);
@@ -1148,6 +1250,10 @@ public:
                 fClosingDown = true;
                 signalThreadShouldExit();
                 callback(true, true, ENGINE_CALLBACK_QUIT, 0, 0, 0, 0, 0.0f, nullptr);
+                break;
+
+            case kPluginBridgeNonRtClientReload:
+                fFirstIdle = true;
                 break;
             }
         }
@@ -1319,10 +1425,18 @@ protected:
                     CARLA_SAFE_ASSERT_BREAK(size > 0);
 
                     // FIXME variable-size stack
-                    uint8_t data[size];
+                    uint8_t data[4];
 
-                    for (uint8_t i=0; i<size; ++i)
-                        data[i] = fShmRtClientControl.readByte();
+                    {
+                        uint8_t i=0;
+                        for (; i<size && i<4; ++i)
+                            data[i] = fShmRtClientControl.readByte();
+                        for (; i<size; ++i)
+                            fShmRtClientControl.readByte();
+                    }
+
+                    if (size > 4)
+                        continue;
 
                     if (EngineEvent* const event = getNextFreeInputEvent())
                     {
@@ -1363,15 +1477,15 @@ protected:
                     {
                         const BridgeTimeInfo& bridgeTimeInfo(fShmRtClientControl.data->timeInfo);
 
-                        const uint32_t audioInCount(plugin->getAudioInCount());
-                        const uint32_t audioOutCount(plugin->getAudioOutCount());
-                        const uint32_t cvInCount(plugin->getCVInCount());
-                        const uint32_t cvOutCount(plugin->getCVOutCount());
+                        const uint32_t audioInCount = plugin->getAudioInCount();
+                        const uint32_t audioOutCount = plugin->getAudioOutCount();
+                        const uint32_t cvInCount = plugin->getCVInCount();
+                        const uint32_t cvOutCount = plugin->getCVOutCount();
 
-                        const float* audioIn[audioInCount];
-                        /* */ float* audioOut[audioOutCount];
-                        const float* cvIn[cvInCount];
-                        /* */ float* cvOut[cvOutCount];
+                        const float* audioIn[64];
+                        /* */ float* audioOut[64];
+                        const float* cvIn[32];
+                        /* */ float* cvOut[32];
 
                         float* fdata = fShmAudioPool.data;
 
@@ -1558,7 +1672,8 @@ private:
     bool fClosingDown;
     bool fIsOffline;
     bool fFirstIdle;
-    int64_t fLastPingTime;
+    uint32_t fBridgeVersion;
+    uint32_t fLastPingTime;
 
     CARLA_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CarlaEngineBridge)
 };

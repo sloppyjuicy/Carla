@@ -1,6 +1,6 @@
 /*
  * Carla Plugin Host
- * Copyright (C) 2011-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -19,9 +19,9 @@
 
 #include "CarlaPipeUtils.hpp"
 
-namespace CB = CarlaBackend;
+namespace CB = CARLA_BACKEND_NAMESPACE;
 
-// -------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
 class ExposedCarlaPipeClient : public CarlaPipeClient
 {
@@ -94,6 +94,8 @@ private:
 
     CARLA_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ExposedCarlaPipeClient)
 };
+
+// --------------------------------------------------------------------------------------------------------------------
 
 CarlaPipeClientHandle carla_pipe_client_new(const char* argv[], CarlaPipeCallbackFunc callbackFunc, void* callbackPtr)
 {
@@ -180,19 +182,19 @@ bool carla_pipe_client_write_and_fix_msg(CarlaPipeClientHandle handle, const cha
     return ((ExposedCarlaPipeClient*)handle)->writeAndFixMessage(msg);
 }
 
-bool carla_pipe_client_flush(CarlaPipeClientHandle handle)
+bool carla_pipe_client_sync(CarlaPipeClientHandle handle)
 {
     CARLA_SAFE_ASSERT_RETURN(handle != nullptr, false);
 
-    return ((ExposedCarlaPipeClient*)handle)->flushMessages();
+    return ((ExposedCarlaPipeClient*)handle)->syncMessages();
 }
 
-bool carla_pipe_client_flush_and_unlock(CarlaPipeClientHandle handle)
+bool carla_pipe_client_sync_and_unlock(CarlaPipeClientHandle handle)
 {
     CARLA_SAFE_ASSERT_RETURN(handle != nullptr, false);
 
     ExposedCarlaPipeClient* const pipe = (ExposedCarlaPipeClient*)handle;
-    const bool ret = pipe->flushMessages();
+    const bool ret = pipe->syncMessages();
     pipe->unlockPipe();
     return ret;
 }
@@ -207,10 +209,22 @@ void carla_pipe_client_destroy(CarlaPipeClientHandle handle)
     delete pipe;
 }
 
-// -------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
-#ifndef CARLA_PLUGIN_EXPORT
+bool carla_pipe_client_flush(CarlaPipeClientHandle handle)
+{
+    return carla_pipe_client_sync(handle);
+}
+
+bool carla_pipe_client_flush_and_unlock(CarlaPipeClientHandle handle)
+{
+    return carla_pipe_client_sync_and_unlock(handle);
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+
+#ifndef CARLA_PLUGIN_BUILD
 # include "CarlaPipeUtils.cpp"
 #endif
 
-// -------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------

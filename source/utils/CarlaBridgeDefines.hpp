@@ -1,6 +1,6 @@
 /*
  * Carla Bridge definitions
- * Copyright (C) 2013-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2013-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -24,7 +24,15 @@
 #define CARLA_PLUGIN_BRIDGE_API_VERSION_MINIMUM 6
 
 // current API version, bumped when something is added
-#define CARLA_PLUGIN_BRIDGE_API_VERSION_CURRENT 8
+#define CARLA_PLUGIN_BRIDGE_API_VERSION_CURRENT 10
+
+// -------------------------------------------------------------------------------------------------------------------
+
+#ifdef CARLA_PROPER_CPP11_SUPPORT
+# include <cstdint>
+#else
+# include <stdint.h>
+#endif
 
 // -------------------------------------------------------------------------------------------------------------------
 
@@ -79,6 +87,10 @@ enum PluginBridgeNonRtClientOpcode {
     kPluginBridgeNonRtClientSetOptions,                     // uint
     // stuff added in API 8
     kPluginBridgeNonRtClientSetWindowTitle,                 // uint/size, str[]
+    // stuff added in API 9
+    kPluginBridgeNonRtClientEmbedUI,                        // ulong
+    // stuff added in API 10
+    kPluginBridgeNonRtClientReload,
 };
 
 // Client sends these to server during non-RT
@@ -107,14 +119,17 @@ enum PluginBridgeNonRtServerOpcode {
     kPluginBridgeNonRtServerMidiProgramData,    // uint/index, uint/bank, uint/program, uint/size, str[] (name)
     kPluginBridgeNonRtServerSetCustomData,      // uint/size, str[], uint/size, str[], uint/size, str[]
     kPluginBridgeNonRtServerSetChunkDataFile,   // uint/size, str[] (filename, base64 content)
-    kPluginBridgeNonRtServerSetLatency,         // uint
+    kPluginBridgeNonRtServerSetLatency,         // uint/latency
     kPluginBridgeNonRtServerSetParameterText,   // uint/index, uint/size, str[] (name)
     kPluginBridgeNonRtServerReady,
     kPluginBridgeNonRtServerSaved,
     kPluginBridgeNonRtServerUiClosed,
     kPluginBridgeNonRtServerError,              // uint/size, str[]
     // stuff added in API 7
-    kPluginBridgeNonRtServerVersion             // uint
+    kPluginBridgeNonRtServerVersion,            // uint/version
+    // stuff added in API 9
+    kPluginBridgeNonRtServerRespEmbedUI,        // ulong/window-id
+    kPluginBridgeNonRtServerResizeEmbedUI,      // uint/width, uint/height
 };
 
 // used for kPluginBridgeNonRtServerPortName

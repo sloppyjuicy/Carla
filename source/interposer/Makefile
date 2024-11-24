@@ -31,15 +31,15 @@ INTERPOSER_X11_LIBS  = $(X11_LIBS) $(LIBDL_LIBS)
 OBJS    =
 TARGETS =
 
-ifeq ($(LINUX),true)
+ifeq ($(LINUX)$(MACOS),true)
 OBJS    += $(OBJDIR)/interposer-safe.cpp.o
 OBJS    += $(OBJDIR)/interposer-jack-x11.cpp.o
-TARGETS += $(BINDIR)/libcarla_interposer-safe.so
-TARGETS += $(BINDIR)/libcarla_interposer-jack-x11.so
+TARGETS += $(BINDIR)/libcarla_interposer-safe$(LIB_EXT)
+TARGETS += $(BINDIR)/libcarla_interposer-jack-x11$(LIB_EXT)
 
 ifeq ($(HAVE_X11),true)
 OBJS    += $(OBJDIR)/interposer-x11.cpp.o
-TARGETS += $(BINDIR)/libcarla_interposer-x11.so
+TARGETS += $(BINDIR)/libcarla_interposer-x11$(LIB_EXT)
 endif
 endif
 
@@ -57,37 +57,37 @@ debug:
 
 # ---------------------------------------------------------------------------------------------------------------------
 
-$(BINDIR)/libcarla_interposer-safe.so: $(OBJDIR)/interposer-safe.cpp.o
+$(BINDIR)/libcarla_interposer-safe$(LIB_EXT): $(OBJDIR)/interposer-safe.cpp.o
 	-@mkdir -p $(BINDIR)
-	@echo "Linking libcarla_interposer-safe.so"
-	@$(CXX) $< $(SHARED) $(LINK_FLAGS) $(INTERPOSER_SAFE_LIBS) -o $@
+	@echo "Linking libcarla_interposer-safe$(LIB_EXT)"
+	$(SILENT)$(CXX) $< $(SHARED) $(LINK_FLAGS) $(INTERPOSER_SAFE_LIBS) -o $@
 
-$(BINDIR)/libcarla_interposer-x11.so: $(OBJDIR)/interposer-x11.cpp.o
+$(BINDIR)/libcarla_interposer-x11$(LIB_EXT): $(OBJDIR)/interposer-x11.cpp.o
 	-@mkdir -p $(BINDIR)
-	@echo "Linking libcarla_interposer-x11.so"
-	@$(CXX) $< $(SHARED) $(LINK_FLAGS) $(INTERPOSER_X11_LIBS) -o $@
+	@echo "Linking libcarla_interposer-x11$(LIB_EXT)"
+	$(SILENT)$(CXX) $< $(SHARED) $(LINK_FLAGS) $(INTERPOSER_X11_LIBS) -o $@
 
-$(BINDIR)/libcarla_interposer-jack-x11.so: $(OBJDIR)/interposer-jack-x11.cpp.o
+$(BINDIR)/libcarla_interposer-jack-x11$(LIB_EXT): $(OBJDIR)/interposer-jack-x11.cpp.o
 	-@mkdir -p $(BINDIR)
-	@echo "Linking libcarla_interposer-jack-x11.so"
-	@$(CXX) $< $(SHARED) $(LINK_FLAGS) $(INTERPOSER_X11_LIBS) -o $@
+	@echo "Linking libcarla_interposer-jack-x11$(LIB_EXT)"
+	$(SILENT)$(CXX) $< $(SHARED) $(LINK_FLAGS) $(INTERPOSER_X11_LIBS) -o $@
 
 # ---------------------------------------------------------------------------------------------------------------------
 
 $(OBJDIR)/interposer-safe.cpp.o: interposer-safe.cpp
 	-@mkdir -p $(OBJDIR)
 	@echo "Compiling $<"
-	@$(CXX) $< $(BUILD_CXX_FLAGS) -c -o $@
+	$(SILENT)$(CXX) $< $(BUILD_CXX_FLAGS) -c -o $@
 
 $(OBJDIR)/interposer-x11.cpp.o: interposer-x11.cpp
 	-@mkdir -p $(OBJDIR)
 	@echo "Compiling $<"
-	@$(CXX) $< $(BUILD_CXX_FLAGS) $(X11_FLAGS) -c -o $@
+	$(SILENT)$(CXX) $< $(BUILD_CXX_FLAGS) $(X11_FLAGS) -c -o $@
 
 $(OBJDIR)/interposer-jack-x11.cpp.o: interposer-jack-x11.cpp
 	-@mkdir -p $(OBJDIR)
 	@echo "Compiling $<"
-	@$(CXX) $< $(BUILD_CXX_FLAGS) $(X11_FLAGS) -c -o $@
+	$(SILENT)$(CXX) $< $(BUILD_CXX_FLAGS) $(X11_FLAGS) -c -o $@
 
 # ---------------------------------------------------------------------------------------------------------------------
 

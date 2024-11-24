@@ -1,26 +1,18 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-# Carla settings code
-# Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License as
-# published by the Free Software Foundation; either version 2 of
-# the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# For a full copy of the GNU General Public License see the doc/GPL.txt file.
+# SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Imports (PyQt5)
+# Imports (PyQt)
 
-from PyQt5.QtCore import pyqtSlot, QT_VERSION, Qt
-from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
+from qt_compat import qt_config
+
+if qt_config == 5:
+    from PyQt5.QtCore import pyqtSlot, QT_VERSION, Qt
+    from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
+elif qt_config == 6:
+    from PyQt6.QtCore import pyqtSlot, QT_VERSION, Qt
+    from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFileDialog
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Imports (Custom)
@@ -45,7 +37,9 @@ from carla_backend import (
     PLUGIN_VST2,
     PLUGIN_VST3,
     PLUGIN_SF2,
-    PLUGIN_SFZ
+    PLUGIN_SFZ,
+    PLUGIN_JSFX,
+    PLUGIN_CLAP,
 )
 
 from carla_shared import (
@@ -54,6 +48,7 @@ from carla_shared import (
     CARLA_KEY_MAIN_PRO_THEME_COLOR,
     CARLA_KEY_MAIN_REFRESH_INTERVAL,
     CARLA_KEY_MAIN_CONFIRM_EXIT,
+    CARLA_KEY_MAIN_CLASSIC_SKIN,
     CARLA_KEY_MAIN_SHOW_LOGS,
     CARLA_KEY_MAIN_SYSTEM_ICONS,
     CARLA_KEY_MAIN_EXPERIMENTAL,
@@ -96,6 +91,8 @@ from carla_shared import (
     CARLA_KEY_PATHS_VST3,
     CARLA_KEY_PATHS_SF2,
     CARLA_KEY_PATHS_SFZ,
+    CARLA_KEY_PATHS_JSFX,
+    CARLA_KEY_PATHS_CLAP,
     CARLA_KEY_WINE_EXECUTABLE,
     CARLA_KEY_WINE_AUTO_PREFIX,
     CARLA_KEY_WINE_FALLBACK_PREFIX,
@@ -113,6 +110,7 @@ from carla_shared import (
     CARLA_DEFAULT_MAIN_PRO_THEME_COLOR,
     CARLA_DEFAULT_MAIN_REFRESH_INTERVAL,
     CARLA_DEFAULT_MAIN_CONFIRM_EXIT,
+    CARLA_DEFAULT_MAIN_CLASSIC_SKIN,
     CARLA_DEFAULT_MAIN_SHOW_LOGS,
     CARLA_DEFAULT_MAIN_SYSTEM_ICONS,
     #CARLA_DEFAULT_MAIN_EXPERIMENTAL,
@@ -169,14 +167,17 @@ from carla_shared import (
     CARLA_DEFAULT_VST3_PATH,
     CARLA_DEFAULT_SF2_PATH,
     CARLA_DEFAULT_SFZ_PATH,
+    CARLA_DEFAULT_JSFX_PATH,
+    CARLA_DEFAULT_CLAP_PATH,
     getAndSetPath,
     getIcon,
     fontMetricsHorizontalAdvance,
     splitter,
-    QSafeSettings
 )
 
 from patchcanvas.theme import Theme, getThemeName
+
+from utils import QSafeSettings
 
 # ---------------------------------------------------------------------------------------------------------------------
 # ...
@@ -231,6 +232,20 @@ class DriverSettingsW(QDialog):
 
     # -----------------------------------------------------------------------------------------------------------------
 
+    def getValues(self):
+        audioDevice = self.ui.cb_device.currentText()
+        bufferSize  = self.ui.cb_buffersize.currentText()
+        sampleRate  = self.ui.cb_samplerate.currentText()
+
+        if bufferSize == self.AUTOMATIC_OPTION:
+            bufferSize = "0"
+        if sampleRate == self.AUTOMATIC_OPTION:
+            sampleRate = "0"
+
+        return (audioDevice, int(bufferSize), int(sampleRate))
+
+    # -----------------------------------------------------------------------------------------------------------------
+
     def loadSettings(self):
         settings = QSafeSettings("falkTX", "Carla2")
 
@@ -253,14 +268,14 @@ class DriverSettingsW(QDialog):
         elif self.fBufferSizes == BUFFER_SIZE_LIST:
             self.ui.cb_buffersize.setCurrentIndex(BUFFER_SIZE_LIST.index(CARLA_DEFAULT_AUDIO_BUFFER_SIZE))
         else:
-            self.ui.cb_buffersize.setCurrentIndex(len(self.fBufferSizes)/2)
+            self.ui.cb_buffersize.setCurrentIndex(int(len(self.fBufferSizes)/2))
 
         if audioSampleRate and audioSampleRate in self.fSampleRates:
             self.ui.cb_samplerate.setCurrentIndex(self.fSampleRates.index(audioSampleRate))
         elif self.fSampleRates == SAMPLE_RATE_LIST:
             self.ui.cb_samplerate.setCurrentIndex(SAMPLE_RATE_LIST.index(CARLA_DEFAULT_AUDIO_SAMPLE_RATE))
         else:
-            self.ui.cb_samplerate.setCurrentIndex(len(self.fSampleRates)/2)
+            self.ui.cb_samplerate.setCurrentIndex(int(len(self.fSampleRates)/2))
 
         self.ui.cb_triple_buffer.setChecked(audioTripleBuffer and self.ui.cb_triple_buffer.isEnabled())
 
@@ -316,24 +331,40 @@ class DriverSettingsW(QDialog):
             self.ui.b_panel.setEnabled(False)
 
         if self.fBufferSizes:
+            match = False
             for bsize in self.fBufferSizes:
                 sbsize = str(bsize)
                 self.ui.cb_buffersize.addItem(sbsize)
 
                 if oldBufferSize == sbsize:
+                    match = True
                     self.ui.cb_buffersize.setCurrentIndex(self.ui.cb_buffersize.count()-1)
+
+            if not match:
+                if CARLA_DEFAULT_AUDIO_BUFFER_SIZE in self.fBufferSizes:
+                    self.ui.cb_buffersize.setCurrentIndex(self.fBufferSizes.index(CARLA_DEFAULT_AUDIO_BUFFER_SIZE))
+                else:
+                    self.ui.cb_buffersize.setCurrentIndex(int(len(self.fBufferSizes)/2))
 
         else:
             self.ui.cb_buffersize.addItem(self.AUTOMATIC_OPTION)
             self.ui.cb_buffersize.setCurrentIndex(0)
 
         if self.fSampleRates:
+            match = False
             for srate in self.fSampleRates:
                 ssrate = str(int(srate))
                 self.ui.cb_samplerate.addItem(ssrate)
 
                 if oldSampleRate == ssrate:
+                    match = True
                     self.ui.cb_samplerate.setCurrentIndex(self.ui.cb_samplerate.count()-1)
+
+            if not match:
+                if CARLA_DEFAULT_AUDIO_SAMPLE_RATE in self.fSampleRates:
+                    self.ui.cb_samplerate.setCurrentIndex(self.fSampleRates.index(CARLA_DEFAULT_AUDIO_SAMPLE_RATE))
+                else:
+                    self.ui.cb_samplerate.setCurrentIndex(int(len(self.fSampleRates)/2))
 
         else:
             self.ui.cb_samplerate.addItem(self.AUTOMATIC_OPTION)
@@ -430,7 +461,7 @@ class RuntimeDriverSettingsW(QDialog):
     # -----------------------------------------------------------------------------------------------------------------
 
     def getValues(self):
-        audioDevice = self.ui.cb_buffersize.currentText()
+        audioDevice = self.ui.cb_device.currentText()
         bufferSize  = self.ui.cb_buffersize.currentText()
         sampleRate  = self.ui.cb_samplerate.currentText()
 
@@ -474,6 +505,8 @@ class CarlaSettingsW(QDialog):
     PLUGINPATH_INDEX_VST3   = 4
     PLUGINPATH_INDEX_SF2    = 5
     PLUGINPATH_INDEX_SFZ    = 6
+    PLUGINPATH_INDEX_JSFX   = 7
+    PLUGINPATH_INDEX_CLAP   = 8
 
     # Single and Multiple client mode is only for JACK,
     # but we still want to match QComboBox index to backend defines,
@@ -545,18 +578,24 @@ class CarlaSettingsW(QDialog):
 
         if not LINUX:
             self.ui.ch_exp_wine_bridges.setVisible(False)
-            self.ui.ch_exp_jack_apps.setVisible(False)
             self.ui.ch_exp_prevent_bad_behaviour.setVisible(False)
             self.ui.lw_page.hideRow(self.TAB_INDEX_WINE)
 
         if not MACOS:
             self.ui.label_engine_ui_bridges_mac_note.setVisible(False)
 
+        if not (LINUX or MACOS):
+            self.ui.ch_exp_jack_apps.setVisible(False)
+
         # FIXME, not implemented yet
         self.ui.ch_engine_uis_always_on_top.hide()
 
         # FIXME broken in some Qt5 versions
         self.ui.cb_canvas_eyecandy.setEnabled(QT_VERSION >= 0x50c00)
+
+        # removed in Qt6
+        if QT_VERSION >= 0x60000:
+            self.ui.cb_canvas_render_hq_aa.hide()
 
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
@@ -602,6 +641,8 @@ class CarlaSettingsW(QDialog):
         self.ui.lw_vst3.currentRowChanged.connect(self.slot_pluginPathRowChanged)
         self.ui.lw_sf2.currentRowChanged.connect(self.slot_pluginPathRowChanged)
         self.ui.lw_sfz.currentRowChanged.connect(self.slot_pluginPathRowChanged)
+        self.ui.lw_jsfx.currentRowChanged.connect(self.slot_pluginPathRowChanged)
+        self.ui.lw_clap.currentRowChanged.connect(self.slot_pluginPathRowChanged)
 
         self.ui.b_filepaths_add.clicked.connect(self.slot_addFilePath)
         self.ui.b_filepaths_remove.clicked.connect(self.slot_removeFilePath)
@@ -627,6 +668,8 @@ class CarlaSettingsW(QDialog):
         self.ui.lw_vst3.setCurrentRow(0)
         self.ui.lw_sf2.setCurrentRow(0)
         self.ui.lw_sfz.setCurrentRow(0)
+        self.ui.lw_jsfx.setCurrentRow(0)
+        self.ui.lw_clap.setCurrentRow(0)
 
         self.ui.lw_files_audio.setCurrentRow(0)
         self.ui.lw_files_midi.setCurrentRow(0)
@@ -666,6 +709,9 @@ class CarlaSettingsW(QDialog):
         self.ui.ch_main_confirm_exit.setChecked(
             settings.value(CARLA_KEY_MAIN_CONFIRM_EXIT, CARLA_DEFAULT_MAIN_CONFIRM_EXIT, bool))
 
+        self.ui.cb_main_classic_skin_default.setChecked(
+            settings.value(CARLA_KEY_MAIN_CLASSIC_SKIN, CARLA_DEFAULT_MAIN_CLASSIC_SKIN, bool))
+
         self.ui.ch_main_system_icons.setChecked(
             settings.value(CARLA_KEY_MAIN_SYSTEM_ICONS, CARLA_DEFAULT_MAIN_SYSTEM_ICONS, bool))
 
@@ -699,7 +745,7 @@ class CarlaSettingsW(QDialog):
                                                                CARLA_DEFAULT_CANVAS_USE_OPENGL, bool))
 
         self.ui.cb_canvas_render_aa.setCheckState(
-            settings.value(CARLA_KEY_CANVAS_ANTIALIASING, CARLA_DEFAULT_CANVAS_ANTIALIASING, int))
+            Qt.CheckState(settings.value(CARLA_KEY_CANVAS_ANTIALIASING, CARLA_DEFAULT_CANVAS_ANTIALIASING, int)))
 
         self.ui.cb_canvas_render_hq_aa.setChecked(self.ui.cb_canvas_render_hq_aa.isEnabled() and
                                                   settings.value(CARLA_KEY_CANVAS_HQ_ANTIALIASING,
@@ -834,6 +880,8 @@ class CarlaSettingsW(QDialog):
         vst3s   = settings.value(CARLA_KEY_PATHS_VST3,   CARLA_DEFAULT_VST3_PATH, list)
         sf2s    = settings.value(CARLA_KEY_PATHS_SF2,    CARLA_DEFAULT_SF2_PATH, list)
         sfzs    = settings.value(CARLA_KEY_PATHS_SFZ,    CARLA_DEFAULT_SFZ_PATH, list)
+        jsfxs   = settings.value(CARLA_KEY_PATHS_JSFX,   CARLA_DEFAULT_JSFX_PATH, list)
+        claps   = settings.value(CARLA_KEY_PATHS_CLAP,   CARLA_DEFAULT_CLAP_PATH, list)
 
         ladspas.sort()
         dssis.sort()
@@ -842,6 +890,8 @@ class CarlaSettingsW(QDialog):
         vst3s.sort()
         sf2s.sort()
         sfzs.sort()
+        jsfxs.sort()
+        claps.sort()
 
         for ladspa in ladspas:
             if not ladspa:
@@ -877,6 +927,16 @@ class CarlaSettingsW(QDialog):
             if not sfz:
                 continue
             self.ui.lw_sfz.addItem(sfz)
+
+        for jsfx in jsfxs:
+            if not jsfx:
+                continue
+            self.ui.lw_jsfx.addItem(jsfx)
+
+        for clap in claps:
+            if not clap:
+                continue
+            self.ui.lw_clap.addItem(clap)
 
         # -------------------------------------------------------------------------------------------------------------
         # Wine
@@ -931,6 +991,7 @@ class CarlaSettingsW(QDialog):
 
         settings.setValue(CARLA_KEY_MAIN_PROJECT_FOLDER,   self.ui.le_main_proj_folder.text())
         settings.setValue(CARLA_KEY_MAIN_CONFIRM_EXIT,     self.ui.ch_main_confirm_exit.isChecked())
+        settings.setValue(CARLA_KEY_MAIN_CLASSIC_SKIN,     self.ui.cb_main_classic_skin_default.isChecked())
         settings.setValue(CARLA_KEY_MAIN_USE_PRO_THEME,    self.ui.ch_main_theme_pro.isChecked())
         settings.setValue(CARLA_KEY_MAIN_PRO_THEME_COLOR,  self.ui.cb_main_theme_color.currentText())
         settings.setValue(CARLA_KEY_MAIN_REFRESH_INTERVAL, self.ui.sb_main_refresh_interval.value())
@@ -1047,6 +1108,8 @@ class CarlaSettingsW(QDialog):
         vst3s   = []
         sf2s    = []
         sfzs    = []
+        jsfxs   = []
+        claps   = []
 
         for i in range(self.ui.lw_ladspa.count()):
             ladspas.append(self.ui.lw_ladspa.item(i).text())
@@ -1069,6 +1132,12 @@ class CarlaSettingsW(QDialog):
         for i in range(self.ui.lw_sfz.count()):
             sfzs.append(self.ui.lw_sfz.item(i).text())
 
+        for i in range(self.ui.lw_jsfx.count()):
+            jsfxs.append(self.ui.lw_jsfx.item(i).text())
+
+        for i in range(self.ui.lw_clap.count()):
+            claps.append(self.ui.lw_clap.item(i).text())
+
         self.host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_LADSPA, splitter.join(ladspas))
         self.host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_DSSI,   splitter.join(dssis))
         self.host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_LV2,    splitter.join(lv2s))
@@ -1076,6 +1145,8 @@ class CarlaSettingsW(QDialog):
         self.host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_VST3,   splitter.join(vst3s))
         self.host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_SF2,    splitter.join(sf2s))
         self.host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_SFZ,    splitter.join(sfzs))
+        self.host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_JSFX,   splitter.join(jsfxs))
+        self.host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_CLAP,   splitter.join(claps))
 
         settings.setValue(CARLA_KEY_PATHS_LADSPA, ladspas)
         settings.setValue(CARLA_KEY_PATHS_DSSI,   dssis)
@@ -1084,6 +1155,8 @@ class CarlaSettingsW(QDialog):
         settings.setValue(CARLA_KEY_PATHS_VST3,   vst3s)
         settings.setValue(CARLA_KEY_PATHS_SF2,    sf2s)
         settings.setValue(CARLA_KEY_PATHS_SFZ,    sfzs)
+        settings.setValue(CARLA_KEY_PATHS_JSFX,   jsfxs)
+        settings.setValue(CARLA_KEY_PATHS_CLAP,   claps)
 
         # -------------------------------------------------------------------------------------------------------------
         # Wine
@@ -1120,6 +1193,7 @@ class CarlaSettingsW(QDialog):
                 self.ui.cb_main_theme_color.findText(CARLA_DEFAULT_MAIN_PRO_THEME_COLOR))
             self.ui.sb_main_refresh_interval.setValue(CARLA_DEFAULT_MAIN_REFRESH_INTERVAL)
             self.ui.ch_main_confirm_exit.setChecked(CARLA_DEFAULT_MAIN_CONFIRM_EXIT)
+            self.ui.cb_main_classic_skin_default(CARLA_DEFAULT_MAIN_CLASSIC_SKIN)
             self.ui.ch_main_show_logs.setChecked(CARLA_DEFAULT_MAIN_SHOW_LOGS)
 
         # -------------------------------------------------------------------------------------------------------------
@@ -1270,6 +1344,26 @@ class CarlaSettingsW(QDialog):
                         continue
                     self.ui.lw_sfz.addItem(path)
 
+            elif curIndex == self.PLUGINPATH_INDEX_JSFX:
+                paths = CARLA_DEFAULT_JSFX_PATH
+                paths.sort()
+                self.ui.lw_jsfx.clear()
+
+                for path in paths:
+                    if not path:
+                        continue
+                    self.ui.lw_jsfx.addItem(path)
+
+            elif curIndex == self.PLUGINPATH_INDEX_CLAP:
+                paths = CARLA_DEFAULT_CLAP_PATH
+                paths.sort()
+                self.ui.lw_clap.clear()
+
+                for path in paths:
+                    if not path:
+                        continue
+                    self.ui.lw_clap.addItem(path)
+
         # -------------------------------------------------------------------------------------------------------------
         # Wine
 
@@ -1398,6 +1492,10 @@ class CarlaSettingsW(QDialog):
             self.ui.lw_sf2.addItem(newPath)
         elif curIndex == self.PLUGINPATH_INDEX_SFZ:
             self.ui.lw_sfz.addItem(newPath)
+        elif curIndex == self.PLUGINPATH_INDEX_JSFX:
+            self.ui.lw_jsfx.addItem(newPath)
+        elif curIndex == self.PLUGINPATH_INDEX_CLAP:
+            self.ui.lw_clap.addItem(newPath)
 
     @pyqtSlot()
     def slot_removePluginPath(self):
@@ -1417,6 +1515,10 @@ class CarlaSettingsW(QDialog):
             self.ui.lw_sf2.takeItem(self.ui.lw_sf2.currentRow())
         elif curIndex == self.PLUGINPATH_INDEX_SFZ:
             self.ui.lw_sfz.takeItem(self.ui.lw_sfz.currentRow())
+        elif curIndex == self.PLUGINPATH_INDEX_JSFX:
+            self.ui.lw_jsfx.takeItem(self.ui.lw_jsfx.currentRow())
+        elif curIndex == self.PLUGINPATH_INDEX_CLAP:
+            self.ui.lw_clap.takeItem(self.ui.lw_clap.currentRow())
 
     @pyqtSlot()
     def slot_changePluginPath(self):
@@ -1436,6 +1538,10 @@ class CarlaSettingsW(QDialog):
             currentPath = self.ui.lw_sf2.currentItem().text()
         elif curIndex == self.PLUGINPATH_INDEX_SFZ:
             currentPath = self.ui.lw_sfz.currentItem().text()
+        elif curIndex == self.PLUGINPATH_INDEX_JSFX:
+            currentPath = self.ui.lw_jsfx.currentItem().text()
+        elif curIndex == self.PLUGINPATH_INDEX_CLAP:
+            currentPath = self.ui.lw_clap.currentItem().text()
         else:
             currentPath = ""
 
@@ -1458,6 +1564,10 @@ class CarlaSettingsW(QDialog):
             self.ui.lw_sf2.currentItem().setText(newPath)
         elif curIndex == self.PLUGINPATH_INDEX_SFZ:
             self.ui.lw_sfz.currentItem().setText(newPath)
+        elif curIndex == self.PLUGINPATH_INDEX_JSFX:
+            self.ui.lw_jsfx.currentItem().setText(newPath)
+        elif curIndex == self.PLUGINPATH_INDEX_CLAP:
+            self.ui.lw_clap.currentItem().setText(newPath)
 
     # -----------------------------------------------------------------------------------------------------------------
 
@@ -1477,6 +1587,10 @@ class CarlaSettingsW(QDialog):
             row = self.ui.lw_sf2.currentRow()
         elif index == self.PLUGINPATH_INDEX_SFZ:
             row = self.ui.lw_sfz.currentRow()
+        elif index == self.PLUGINPATH_INDEX_JSFX:
+            row = self.ui.lw_jsfx.currentRow()
+        elif index == self.PLUGINPATH_INDEX_CLAP:
+            row = self.ui.lw_clap.currentRow()
         else:
             row = -1
 

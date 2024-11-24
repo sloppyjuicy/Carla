@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017-2018 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -204,39 +204,6 @@ public:
         This will free any memory allocated by the buffer.
     */
     ~AudioSampleBuffer() noexcept {}
-
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    /** Move constructor */
-    AudioSampleBuffer (AudioSampleBuffer&& other) noexcept
-        : numChannels (other.numChannels),
-          size (other.size),
-          allocatedBytes (other.allocatedBytes),
-          channels (other.channels),
-          allocatedData (static_cast<HeapBlock<char>&&> (other.allocatedData)),
-          isClear (other.isClear)
-    {
-        std::memcpy (preallocatedChannelSpace, other.preallocatedChannelSpace, sizeof (preallocatedChannelSpace));
-        other.numChannels = 0;
-        other.size = 0;
-        other.allocatedBytes = 0;
-    }
-
-    /** Move assignment */
-    AudioSampleBuffer& operator= (AudioSampleBuffer&& other) noexcept
-    {
-        numChannels = other.numChannels;
-        size = other.size;
-        allocatedBytes = other.allocatedBytes;
-        channels = other.channels;
-        allocatedData = static_cast<HeapBlock<char>&&> (other.allocatedData);
-        isClear = other.isClear;
-        memcpy (preallocatedChannelSpace, other.preallocatedChannelSpace, sizeof (preallocatedChannelSpace));
-        other.numChannels = 0;
-        other.size = 0;
-        other.allocatedBytes = 0;
-        return *this;
-    }
-   #endif
 
     //==============================================================================
     /** Returns the number of channels of audio data that this buffer contains.
@@ -771,7 +738,7 @@ private:
         return true;
     }
 
-    // CARLA_DECLARE_NON_COPY_CLASS(AudioSampleBuffer)
+    // CARLA_DECLARE_NON_COPYABLE(AudioSampleBuffer)
 };
 
 }

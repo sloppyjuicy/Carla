@@ -1,6 +1,6 @@
 /*
  * Carla SFZero Plugin
- * Copyright (C) 2018-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2018-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -16,8 +16,15 @@
  */
 
 #include "CarlaPluginInternal.hpp"
-#include "CarlaBackendUtils.hpp"
 #include "CarlaEngine.hpp"
+
+#ifndef STATIC_PLUGIN_TARGET
+# define HAVE_SFZ
+#endif
+
+#ifdef HAVE_SFZ
+
+#include "CarlaBackendUtils.hpp"
 
 #include "sfzero/SFZero.h"
 
@@ -277,7 +284,7 @@ public:
         // Parameters
 
         pData->param.data[0].type   = PARAMETER_OUTPUT;
-        pData->param.data[0].hints  = PARAMETER_IS_ENABLED | PARAMETER_IS_AUTOMABLE | PARAMETER_IS_INTEGER;
+        pData->param.data[0].hints  = PARAMETER_IS_ENABLED | PARAMETER_IS_AUTOMATABLE | PARAMETER_IS_INTEGER;
         pData->param.data[0].index  = 0;
         pData->param.data[0].rindex = 0;
         pData->param.ranges[0].min = 0.0f;
@@ -462,16 +469,16 @@ public:
                                 continue;
                             if (pData->param.data[k].hints != PARAMETER_INPUT)
                                 continue;
-                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMABLE) == 0)
+                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMATABLE) == 0)
                                 continue;
 
                             value = pData->param.getFinalUnnormalizedValue(k, ctrlEvent.normalizedValue);
-                            setParameterValueRT(k, value, true);
+                            setParameterValueRT(k, value, eventTime, true);
                         }
 
                         if ((pData->options & PLUGIN_OPTION_SEND_CONTROL_CHANGES) != 0 && ctrlEvent.param < MAX_MIDI_VALUE)
                         {
-                            fSynth.handleController(event.channel+1, ctrlEvent.param, int(ctrlEvent.normalizedValue*127.0f));
+                            fSynth.handleController(event.channel+1, ctrlEvent.param, int(ctrlEvent.normalizedValue*127.0f + 0.5f));
                         }
 
                         break;
@@ -503,9 +510,10 @@ public:
                 case kEngineEventTypeMidi: {
                     const EngineMidiEvent& midiEvent(event.midi);
 
-                    const uint8_t* const midiData(midiEvent.size > EngineMidiEvent::kDataSize ? midiEvent.dataExt : midiEvent.data);
+                    if (midiEvent.size > EngineMidiEvent::kDataSize)
+                        continue;
 
-                    uint8_t status = uint8_t(MIDI_GET_STATUS_FROM_DATA(midiData));
+                    uint8_t status = uint8_t(MIDI_GET_STATUS_FROM_DATA(midiEvent.data));
 
                     if ((status == MIDI_STATUS_NOTE_OFF || status == MIDI_STATUS_NOTE_ON) && (pData->options & PLUGIN_OPTION_SKIP_SENDING_NOTES))
                         continue;
@@ -519,13 +527,13 @@ public:
                         continue;
 
                     // Fix bad note-off
-                    if (status == MIDI_STATUS_NOTE_ON && midiData[2] == 0)
+                    if (status == MIDI_STATUS_NOTE_ON && midiEvent.data[2] == 0)
                         status = MIDI_STATUS_NOTE_OFF;
 
                     // put back channel in data
-                    uint8_t midiData2[midiEvent.size];
+                    uint8_t midiData2[EngineMidiEvent::kDataSize];
                     midiData2[0] = uint8_t(status | (event.channel & MIDI_CHANNEL_BIT));
-                    std::memcpy(midiData2+1, midiData+1, static_cast<std::size_t>(midiEvent.size-1));
+                    std::memcpy(midiData2 + 1, midiEvent.data + 1, static_cast<std::size_t>(midiEvent.size - 1));
 
                     const MidiMessage midiMessage(midiData2, static_cast<int>(midiEvent.size), 0.0);
 
@@ -533,11 +541,11 @@ public:
 
                     if (status == MIDI_STATUS_NOTE_ON)
                     {
-                        pData->postponeNoteOnRtEvent(true, event.channel, midiData[1], midiData[2]);
+                        pData->postponeNoteOnRtEvent(true, event.channel, midiEvent.data[1], midiEvent.data[2]);
                     }
                     else if (status == MIDI_STATUS_NOTE_OFF)
                     {
-                        pData->postponeNoteOffRtEvent(true, event.channel, midiData[1]);
+                        pData->postponeNoteOffRtEvent(true, event.channel, midiEvent.data[1]);
                     }
                 } break;
                 }
@@ -595,7 +603,7 @@ public:
 #if 0
             if (doBalance)
             {
-                float oldBufLeft[frames];
+                float* const oldBufLeft = pData->postProc.extraBuffer;
 
                 // there was a loop here
                 {
@@ -765,6 +773,12 @@ private:
     CARLA_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CarlaPluginSFZero)
 };
 
+CARLA_BACKEND_END_NAMESPACE
+
+#endif // HAVE_SFZ
+
+CARLA_BACKEND_START_NAMESPACE
+
 // -------------------------------------------------------------------------------------------------------------------
 
 CarlaPluginPtr CarlaPlugin::newSFZero(const Initializer& init)
@@ -772,10 +786,11 @@ CarlaPluginPtr CarlaPlugin::newSFZero(const Initializer& init)
     carla_debug("CarlaPluginSFZero::newSFZero({%p, \"%s\", \"%s\", \"%s\", " P_INT64 "})",
                 init.engine, init.filename, init.name, init.label, init.uniqueId);
 
+#ifdef HAVE_SFZ
     // -------------------------------------------------------------------
     // Check if file exists
 
-    if (! File(init.filename).existsAsFile())
+    if (! water::File(init.filename).existsAsFile())
     {
         init.engine->setLastError("Requested file is not valid or does not exist");
         return nullptr;
@@ -787,6 +802,10 @@ CarlaPluginPtr CarlaPlugin::newSFZero(const Initializer& init)
         return nullptr;
 
     return plugin;
+#else
+    init.engine->setLastError("SFZ support not available");
+    return nullptr;
+#endif
 }
 
 // -------------------------------------------------------------------------------------------------------------------

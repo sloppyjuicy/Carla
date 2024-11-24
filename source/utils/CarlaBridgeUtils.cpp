@@ -1,6 +1,6 @@
 /*
  * Carla Bridge utils
- * Copyright (C) 2013-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2013-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -17,6 +17,7 @@
 
 #include "CarlaBridgeUtils.hpp"
 #include "CarlaShmUtils.hpp"
+#include "CarlaTimeUtils.hpp"
 
 // must be last
 #include "jackbridge/JackBridge.hpp"
@@ -64,8 +65,8 @@ BridgeAudioPool::~BridgeAudioPool() noexcept
 
 bool BridgeAudioPool::initializeServer() noexcept
 {
-    char tmpFileBase[64];
-    std::sprintf(tmpFileBase, PLUGIN_BRIDGE_NAMEPREFIX_AUDIO_POOL "XXXXXX");
+    char tmpFileBase[64] = {};
+    std::snprintf(tmpFileBase, sizeof(tmpFileBase)-1, PLUGIN_BRIDGE_NAMEPREFIX_AUDIO_POOL "XXXXXX");
 
     const carla_shm_t shm2 = carla_shm_create_temp(tmpFileBase);
     CARLA_SAFE_ASSERT_RETURN(carla_is_shm_valid(shm2), false);
@@ -167,8 +168,8 @@ BridgeRtClientControl::~BridgeRtClientControl() noexcept
 
 bool BridgeRtClientControl::initializeServer() noexcept
 {
-    char tmpFileBase[64];
-    std::sprintf(tmpFileBase, PLUGIN_BRIDGE_NAMEPREFIX_RT_CLIENT "XXXXXX");
+    char tmpFileBase[64] = {};
+    std::snprintf(tmpFileBase, sizeof(tmpFileBase)-1, PLUGIN_BRIDGE_NAMEPREFIX_RT_CLIENT "XXXXXX");
 
     const carla_shm_t shm2 = carla_shm_create_temp(tmpFileBase);
     CARLA_SAFE_ASSERT_RETURN(carla_is_shm_valid(shm2), false);
@@ -337,8 +338,8 @@ BridgeNonRtClientControl::~BridgeNonRtClientControl() noexcept
 
 bool BridgeNonRtClientControl::initializeServer() noexcept
 {
-    char tmpFileBase[64];
-    std::sprintf(tmpFileBase, PLUGIN_BRIDGE_NAMEPREFIX_NON_RT_CLIENT "XXXXXX");
+    char tmpFileBase[64] = {};
+    std::snprintf(tmpFileBase, sizeof(tmpFileBase)-1, PLUGIN_BRIDGE_NAMEPREFIX_NON_RT_CLIENT "XXXXXX");
 
     const carla_shm_t shm2 = carla_shm_create_temp(tmpFileBase);
     CARLA_SAFE_ASSERT_RETURN(carla_is_shm_valid(shm2), false);
@@ -424,12 +425,12 @@ void BridgeNonRtClientControl::waitIfDataIsReachingLimit() noexcept
 {
     CARLA_SAFE_ASSERT_RETURN(isServer,);
 
-    if (getAvailableDataSize() < BigStackBuffer::size/4)
+    if (getWritableDataSize() < BigStackBuffer::size/4)
         return;
 
     for (int i=50; --i >= 0;)
     {
-        if (getAvailableDataSize() >= BigStackBuffer::size*3/4)
+        if (getWritableDataSize() >= BigStackBuffer::size*3/4)
         {
             writeOpcode(kPluginBridgeNonRtClientPing);
             commitWrite();
@@ -477,8 +478,8 @@ BridgeNonRtServerControl::~BridgeNonRtServerControl() noexcept
 
 bool BridgeNonRtServerControl::initializeServer() noexcept
 {
-    char tmpFileBase[64];
-    std::sprintf(tmpFileBase, PLUGIN_BRIDGE_NAMEPREFIX_NON_RT_SERVER "XXXXXX");
+    char tmpFileBase[64] = {};
+    std::snprintf(tmpFileBase, sizeof(tmpFileBase)-1, PLUGIN_BRIDGE_NAMEPREFIX_NON_RT_SERVER "XXXXXX");
 
     const carla_shm_t shm2 = carla_shm_create_temp(tmpFileBase);
     CARLA_SAFE_ASSERT_RETURN(carla_is_shm_valid(shm2), false);
@@ -569,12 +570,12 @@ void BridgeNonRtServerControl::waitIfDataIsReachingLimit() noexcept
 {
     CARLA_SAFE_ASSERT_RETURN(! isServer,);
 
-    if (getAvailableDataSize() < HugeStackBuffer::size/4)
+    if (getWritableDataSize() < HugeStackBuffer::size/4)
         return;
 
     for (int i=50; --i >= 0;)
     {
-        if (getAvailableDataSize() >= HugeStackBuffer::size*3/4)
+        if (getWritableDataSize() >= HugeStackBuffer::size*3/4)
         {
             writeOpcode(kPluginBridgeNonRtServerPong);
             commitWrite();

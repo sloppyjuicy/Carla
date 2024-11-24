@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017-2019 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -73,7 +73,7 @@ XmlElement::XmlAttributeNode::XmlAttributeNode (const Identifier& n, const Strin
     wassert (isValidXmlName (name));
 }
 
-XmlElement::XmlAttributeNode::XmlAttributeNode (String::CharPointerType nameStart, String::CharPointerType nameEnd)
+XmlElement::XmlAttributeNode::XmlAttributeNode (CharPointer_UTF8 nameStart, CharPointer_UTF8 nameEnd)
     : name (nameStart, nameEnd)
 {
     wassert (isValidXmlName (name));
@@ -104,7 +104,7 @@ XmlElement::XmlElement (const Identifier& tag)
     wassert (isValidXmlName (tagName));
 }
 
-XmlElement::XmlElement (String::CharPointerType tagNameStart, String::CharPointerType tagNameEnd)
+XmlElement::XmlElement (CharPointer_UTF8 tagNameStart, CharPointer_UTF8 tagNameEnd)
     : tagName (StartEndString (tagNameStart, tagNameEnd))
 {
     wassert (isValidXmlName (tagName));
@@ -132,31 +132,6 @@ XmlElement& XmlElement::operator= (const XmlElement& other)
 
     return *this;
 }
-
-#if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-XmlElement::XmlElement (XmlElement&& other) noexcept
-    : nextListItem      (static_cast<LinkedListPointer<XmlElement>&&> (other.nextListItem)),
-      firstChildElement (static_cast<LinkedListPointer<XmlElement>&&> (other.firstChildElement)),
-      attributes        (static_cast<LinkedListPointer<XmlAttributeNode>&&> (other.attributes)),
-      tagName           (static_cast<String&&> (other.tagName))
-{
-}
-
-XmlElement& XmlElement::operator= (XmlElement&& other) noexcept
-{
-    wassert (this != &other); // hopefully the compiler should make this situation impossible!
-
-    removeAllAttributes();
-    deleteAllChildElements();
-
-    nextListItem      = static_cast<LinkedListPointer<XmlElement>&&> (other.nextListItem);
-    firstChildElement = static_cast<LinkedListPointer<XmlElement>&&> (other.firstChildElement);
-    attributes        = static_cast<LinkedListPointer<XmlAttributeNode>&&> (other.attributes);
-    tagName           = static_cast<String&&> (other.tagName);
-
-    return *this;
-}
-#endif
 
 void XmlElement::copyChildrenAndAttributesFrom (const XmlElement& other)
 {
@@ -221,7 +196,7 @@ namespace XmlOutputFunctions
 
     static void escapeIllegalXmlChars (OutputStream& outputStream, const String& text, const bool changeNewLines)
     {
-        String::CharPointerType t (text.getCharPointer());
+        CharPointer_UTF8 t (text.getCharPointer());
 
         for (;;)
         {
@@ -473,12 +448,18 @@ static const String& getEmptyStringRef() noexcept
     return empty;
 }
 
-const String& XmlElement::getAttributeName (const int index) const noexcept
+static const std::string& getEmptyStdStringRef() noexcept
+{
+    static std::string empty;
+    return empty;
+}
+
+const std::string& XmlElement::getAttributeName (const int index) const noexcept
 {
     if (const XmlAttributeNode* const att = attributes [index])
         return att->name.toString();
 
-    return getEmptyStringRef();
+    return getEmptyStdStringRef();
 }
 
 const String& XmlElement::getAttributeValue (const int index) const noexcept
@@ -857,10 +838,7 @@ bool XmlElement::isTextElement() const noexcept
     return tagName.isEmpty();
 }
 
-static const String water_xmltextContentAttributeName ()
-{
-    return String ("text");
-}
+static const char* const water_xmltextContentAttributeName = "text";
 
 const String& XmlElement::getText() const noexcept
 {
@@ -868,13 +846,13 @@ const String& XmlElement::getText() const noexcept
                                 // isn't actually a text element.. If this contains text sub-nodes, you
                                 // probably want to use getAllSubText instead.
 
-    return getStringAttribute (water_xmltextContentAttributeName());
+    return getStringAttribute (water_xmltextContentAttributeName);
 }
 
 void XmlElement::setText (const String& newText)
 {
     CARLA_SAFE_ASSERT_RETURN(isTextElement(),);
-    setAttribute (water_xmltextContentAttributeName(), newText);
+    setAttribute (water_xmltextContentAttributeName, newText);
 }
 
 String XmlElement::getAllSubText() const
@@ -904,7 +882,7 @@ String XmlElement::getChildElementAllSubText (StringRef childTagName, const Stri
 XmlElement* XmlElement::createTextElement (const String& text)
 {
     XmlElement* const e = new XmlElement ((int) 0);
-    e->setAttribute (water_xmltextContentAttributeName(), text);
+    e->setAttribute (water_xmltextContentAttributeName, text);
     return e;
 }
 

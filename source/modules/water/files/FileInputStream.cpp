@@ -91,8 +91,8 @@ FileInputStream::~FileInputStream()
 
 void FileInputStream::openHandle()
 {
-    HANDLE h = CreateFile (file.getFullPathName().toUTF8(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, 0,
-                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, 0);
+    HANDLE h = CreateFileA (file.getFullPathName().toUTF8(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, 0,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, 0);
 
     if (h != INVALID_HANDLE_VALUE)
         fileHandle = (void*) h;
@@ -106,7 +106,10 @@ size_t FileInputStream::readInternal (void* buffer, size_t numBytes)
     {
         DWORD actualNum = 0;
         if (! ReadFile ((HANDLE) fileHandle, buffer, (DWORD) numBytes, &actualNum, 0))
+        {
             status = getResultForLastError();
+            actualNum = 0;
+        }
 
         return (size_t) actualNum;
     }

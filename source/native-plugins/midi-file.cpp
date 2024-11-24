@@ -1,6 +1,6 @@
 /*
  * Carla Native Plugins
- * Copyright (C) 2012-2021 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2024 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -84,7 +84,7 @@ protected:
         {
         case kParameterRepeating:
             param.name  = "Repeat Mode";
-            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMABLE|
+            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMATABLE|
                                                             NATIVE_PARAMETER_IS_ENABLED|
                                                             NATIVE_PARAMETER_IS_BOOLEAN);
             param.ranges.def = 0.0f;
@@ -93,7 +93,7 @@ protected:
             break;
         case kParameterHostSync:
             param.name  = "Host Sync";
-            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMABLE|
+            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMATABLE|
                                                             NATIVE_PARAMETER_IS_ENABLED|
                                                             NATIVE_PARAMETER_IS_BOOLEAN);
 #ifdef __MOD_DEVICES__
@@ -106,7 +106,7 @@ protected:
             break;
         case kParameterEnabled:
             param.name  = "Enabled";
-            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMABLE|
+            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMATABLE|
                                                             NATIVE_PARAMETER_IS_ENABLED|
                                                             NATIVE_PARAMETER_IS_BOOLEAN|
                                                             NATIVE_PARAMETER_USES_DESIGNATION);
@@ -117,7 +117,7 @@ protected:
             break;
         case kParameterInfoNumTracks:
             param.name  = "Num Tracks";
-            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMABLE|
+            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMATABLE|
                                                             NATIVE_PARAMETER_IS_ENABLED|
                                                             NATIVE_PARAMETER_IS_INTEGER|
                                                             NATIVE_PARAMETER_IS_OUTPUT);
@@ -127,7 +127,7 @@ protected:
             break;
         case kParameterInfoLength:
             param.name  = "Length";
-            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMABLE|
+            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMATABLE|
                                                             NATIVE_PARAMETER_IS_ENABLED|
                                                             NATIVE_PARAMETER_IS_OUTPUT);
             param.ranges.def = 0.0f;
@@ -137,7 +137,7 @@ protected:
             break;
         case kParameterInfoPosition:
             param.name  = "Position";
-            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMABLE|
+            param.hints = static_cast<NativeParameterHints>(NATIVE_PARAMETER_IS_AUTOMATABLE|
                                                             NATIVE_PARAMETER_IS_ENABLED|
                                                             NATIVE_PARAMETER_IS_OUTPUT);
             param.ranges.def = 0.0f;
@@ -365,8 +365,7 @@ private:
 
         using namespace water;
 
-        const String jfilename = String(CharPointer_UTF8(filename));
-        File file(jfilename);
+        File file(filename);
 
         if (! file.existsAsFile())
            return;
@@ -384,12 +383,12 @@ private:
 
         for (size_t i=0; i<numTracks; ++i)
         {
-            const MidiMessageSequence* const track(midiFile.getTrack(i));
+            const MidiMessageSequence* const track = midiFile.getTrack(i);
             CARLA_SAFE_ASSERT_CONTINUE(track != nullptr);
 
             for (int j=0, numEvents = track->getNumEvents(); j<numEvents; ++j)
             {
-                const MidiMessageSequence::MidiEventHolder* const midiEventHolder(track->getEventPointer(j));
+                const MidiMessageSequence::MidiEventHolder* const midiEventHolder = track->getEventPointer(j);
                 CARLA_SAFE_ASSERT_CONTINUE(midiEventHolder != nullptr);
 
                 const MidiMessage& midiMessage(midiEventHolder->message);
@@ -451,10 +450,10 @@ static const NativePluginDescriptor midifileDesc = {
 
 // -----------------------------------------------------------------------
 
-CARLA_EXPORT
+CARLA_API_EXPORT
 void carla_register_native_plugin_midifile();
 
-CARLA_EXPORT
+CARLA_API_EXPORT
 void carla_register_native_plugin_midifile()
 {
     carla_register_native_plugin(&midifileDesc);

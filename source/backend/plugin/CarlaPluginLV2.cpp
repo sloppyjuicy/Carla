@@ -1,19 +1,5 @@
-/*
- * Carla LV2 Plugin
- * Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 // testing macros
 // #define LV2_UIS_ONLY_BRIDGES
@@ -47,6 +33,10 @@ extern "C" {
 #  define ADAPT_FOR_APPLE_SILLICON
 #  include "CarlaBinaryUtils.hpp"
 # endif
+#endif
+
+#ifdef CARLA_OS_WASM
+# define LV2_UIS_ONLY_INPROCESS
 #endif
 
 #include <string>
@@ -145,7 +135,9 @@ enum CarlaLv2URIDs {
     // ui stuff
     kUridBackgroundColor,
     kUridForegroundColor,
+#ifndef CARLA_OS_MAC
     kUridScaleFactor,
+#endif
     kUridWindowTitle,
     // custom carla props
     kUridCarlaAtomWorkerIn,
@@ -182,6 +174,7 @@ enum CarlaLv2Features {
     kFeatureIdWorker,
     kFeatureIdInlineDisplay,
     kFeatureIdMidnam,
+    kFeatureIdCtrlInPortChangeReq,
     kFeatureCountPlugin,
     // UI features
     kFeatureIdUiDataAccess = kFeatureCountPlugin,
@@ -237,7 +230,7 @@ struct Lv2EventData {
             port = nullptr;
         }
 
-        const uint32_t rtype(type);
+        const uint32_t rtype = type;
         type = 0x0;
 
         if (rtype & CARLA_EVENT_DATA_ATOM)
@@ -263,18 +256,26 @@ struct Lv2EventData {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(Lv2EventData)
+    CARLA_DECLARE_NON_COPYABLE(Lv2EventData)
+};
+
+union LV2EventIters {
+    LV2_Atom_Buffer_Iterator atom;
+    LV2_Event_Iterator event;
+    LV2_MIDIState midiState;
 };
 
 struct CarlaPluginLV2EventData {
     uint32_t count;
     Lv2EventData* data;
+    LV2EventIters* iters;
     Lv2EventData* ctrl; // default port, either this->data[x] or pData->portIn/Out
     uint32_t ctrlIndex;
 
     CarlaPluginLV2EventData() noexcept
         : count(0),
           data(nullptr),
+          iters(nullptr),
           ctrl(nullptr),
           ctrlIndex(0) {}
 
@@ -282,6 +283,7 @@ struct CarlaPluginLV2EventData {
     {
         CARLA_SAFE_ASSERT_INT(count == 0, count);
         CARLA_SAFE_ASSERT(data == nullptr);
+        CARLA_SAFE_ASSERT(iters == nullptr);
         CARLA_SAFE_ASSERT(ctrl == nullptr);
         CARLA_SAFE_ASSERT_INT(ctrlIndex == 0, ctrlIndex);
     }
@@ -291,10 +293,12 @@ struct CarlaPluginLV2EventData {
         CARLA_SAFE_ASSERT_INT(count == 0, count);
         CARLA_SAFE_ASSERT_INT(ctrlIndex == 0, ctrlIndex);
         CARLA_SAFE_ASSERT_RETURN(data == nullptr,);
+        CARLA_SAFE_ASSERT_RETURN(iters == nullptr,);
         CARLA_SAFE_ASSERT_RETURN(ctrl == nullptr,);
         CARLA_SAFE_ASSERT_RETURN(newCount > 0,);
 
         data  = new Lv2EventData[newCount];
+        iters = new LV2EventIters[newCount];
         count = newCount;
 
         ctrl      = nullptr;
@@ -319,6 +323,12 @@ struct CarlaPluginLV2EventData {
             data = nullptr;
         }
 
+        if (iters != nullptr)
+        {
+            delete[] iters;
+            iters = nullptr;
+        }
+
         count = 0;
 
         ctrl      = nullptr;
@@ -334,7 +344,7 @@ struct CarlaPluginLV2EventData {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(CarlaPluginLV2EventData)
+    CARLA_DECLARE_NON_COPYABLE(CarlaPluginLV2EventData)
 };
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -349,7 +359,9 @@ struct CarlaPluginLV2Options {
         TransientWinId,
         BackgroundColor,
         ForegroundColor,
+#ifndef CARLA_OS_MAC
         ScaleFactor,
+#endif
         WindowTitle,
         Null,
         Count
@@ -427,6 +439,7 @@ struct CarlaPluginLV2Options {
         optForegroundColor.type    = kUridAtomInt;
         optForegroundColor.value   = &fgColor;
 
+#ifndef CARLA_OS_MAC
         LV2_Options_Option& optScaleFactor(opts[ScaleFactor]);
         optScaleFactor.context = LV2_OPTIONS_INSTANCE;
         optScaleFactor.subject = 0;
@@ -434,6 +447,7 @@ struct CarlaPluginLV2Options {
         optScaleFactor.size    = sizeof(float);
         optScaleFactor.type    = kUridAtomFloat;
         optScaleFactor.value   = &uiScale;
+#endif
 
         LV2_Options_Option& optSampleRate(opts[SampleRate]);
         optSampleRate.context = LV2_OPTIONS_INSTANCE;
@@ -482,9 +496,10 @@ struct CarlaPluginLV2Options {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(CarlaPluginLV2Options);
+    CARLA_DECLARE_NON_COPYABLE(CarlaPluginLV2Options);
 };
 
+#ifndef LV2_UIS_ONLY_INPROCESS
 // -------------------------------------------------------------------------------------------------------------------
 
 class CarlaPluginLV2;
@@ -556,7 +571,7 @@ public:
         if (! writeAndFixMessage(title))
             return;
 
-        flushMessages();
+        syncMessages();
     }
 
 protected:
@@ -576,6 +591,7 @@ private:
 };
 
 // -------------------------------------------------------------------------------------------------------------------
+#endif
 
 static void initAtomForge(LV2_Atom_Forge& atomForge) noexcept
 {
@@ -645,10 +661,14 @@ public:
           fAtomBufferWorkerResp(),
           fAtomBufferUiOutTmpData(nullptr),
           fAtomBufferWorkerInTmpData(nullptr),
+          fAtomBufferRealtime(nullptr),
+          fAtomBufferRealtimeSize(0),
           fEventsIn(),
           fEventsOut(),
           fLv2Options(),
+#ifndef LV2_UIS_ONLY_INPROCESS
           fPipeServer(engine, this),
+#endif
           fCustomURIDs(kUridCount, std::string("urn:null")),
           fFirstActive(true),
           fLastStateChunk(nullptr),
@@ -675,11 +695,13 @@ public:
         {
             showCustomUI(false);
 
+#ifndef LV2_UIS_ONLY_INPROCESS
             if (fUI.type == UI::TYPE_BRIDGE)
             {
                 fPipeServer.stopPipeServer(pData->engine->getOptions().uiBridgesTimeout);
             }
             else
+#endif
             {
                 if (fFeatures[kFeatureIdUiDataAccess] != nullptr && fFeatures[kFeatureIdUiDataAccess]->data != nullptr)
                     delete (LV2_Extension_Data_Feature*)fFeatures[kFeatureIdUiDataAccess]->data;
@@ -800,6 +822,9 @@ public:
         if (fFeatures[kFeatureIdMidnam] != nullptr && fFeatures[kFeatureIdMidnam]->data != nullptr)
             delete (LV2_Midnam*)fFeatures[kFeatureIdMidnam]->data;
 
+        if (fFeatures[kFeatureIdCtrlInPortChangeReq] != nullptr && fFeatures[kFeatureIdCtrlInPortChangeReq]->data != nullptr)
+            delete (LV2_ControlInputPort_Change_Request*)fFeatures[kFeatureIdCtrlInPortChangeReq]->data;
+
         for (uint32_t i=0; i < kFeatureCountAll; ++i)
         {
             if (fFeatures[i] != nullptr)
@@ -840,6 +865,12 @@ public:
         {
             delete[] fAtomBufferWorkerInTmpData;
             fAtomBufferWorkerInTmpData = nullptr;
+        }
+
+        if (fAtomBufferRealtime != nullptr)
+        {
+            std::free(fAtomBufferRealtime);
+            fAtomBufferRealtime = nullptr;
         }
 
         clearBuffers();
@@ -955,7 +986,39 @@ public:
     // -------------------------------------------------------------------
     // Information (current data)
 
-    // nothing
+    uint getAudioPortHints(bool isOutput, uint32_t portIndex) const noexcept override
+    {
+        uint hints = 0x0;
+
+        for (uint32_t i=0, j=0; i<fRdfDescriptor->PortCount; ++i)
+        {
+            LV2_RDF_Port& port(fRdfDescriptor->Ports[i]);
+
+            if (! LV2_IS_PORT_AUDIO(port.Types))
+                continue;
+
+            if (isOutput)
+            {
+                if (! LV2_IS_PORT_OUTPUT(port.Types))
+                    continue;
+            }
+            else
+            {
+                if (! LV2_IS_PORT_INPUT(port.Types))
+                    continue;
+            }
+
+            if (j++ != portIndex)
+                continue;
+
+            if (LV2_IS_PORT_SIDECHAIN(port.Properties))
+                hints |= AUDIO_PORT_IS_SIDECHAIN;
+
+            break;
+        }
+
+        return hints;
+    }
 
     // -------------------------------------------------------------------
     // Information (per-plugin data)
@@ -1239,6 +1302,9 @@ public:
                 case LV2_PORT_UNIT_SEMITONE:
                     std::strncpy(strBuf, "semi", STR_MAX);
                     return true;
+                case LV2_PORT_UNIT_VOLTS:
+                    std::strncpy(strBuf, "v", STR_MAX);
+                    return true;
                 }
             }
         }
@@ -1431,8 +1497,10 @@ public:
         if (fFeatures[kFeatureIdExternalUi] != nullptr && fFeatures[kFeatureIdExternalUi]->data != nullptr)
             ((LV2_External_UI_Host*)fFeatures[kFeatureIdExternalUi]->data)->plugin_human_id = fLv2Options.windowTitle;
 
+#ifndef LV2_UIS_ONLY_INPROCESS
         if (fPipeServer.isPipeRunning())
             fPipeServer.writeUiTitleMessage(fLv2Options.windowTitle);
+#endif
 
 #ifndef LV2_UIS_ONLY_BRIDGES
         if (fUI.window != nullptr)
@@ -1517,14 +1585,14 @@ public:
         CarlaPlugin::setParameterValue(parameterId, fixedValue, sendGui, sendOsc, sendCallback);
     }
 
-    void setParameterValueRT(const uint32_t parameterId, const float value, const bool sendCallbackLater) noexcept override
+    void setParameterValueRT(const uint32_t parameterId, const float value, const uint32_t frameOffset, const bool sendCallbackLater) noexcept override
     {
         CARLA_SAFE_ASSERT_RETURN(fParamBuffers != nullptr,);
         CARLA_SAFE_ASSERT_RETURN(parameterId < pData->param.count,);
 
         const float fixedValue = setParamterValueCommon(parameterId, value);
 
-        CarlaPlugin::setParameterValueRT(parameterId, fixedValue, sendCallbackLater);
+        CarlaPlugin::setParameterValueRT(parameterId, fixedValue, frameOffset, sendCallbackLater);
     }
 
     void setCustomData(const char* const type, const char* const key, const char* const value, const bool sendGui) override
@@ -1534,7 +1602,20 @@ public:
         CARLA_SAFE_ASSERT_RETURN(type != nullptr && type[0] != '\0',);
         CARLA_SAFE_ASSERT_RETURN(key != nullptr && key[0] != '\0',);
         CARLA_SAFE_ASSERT_RETURN(value != nullptr,);
-        carla_debug("CarlaPluginLV2::setCustomData(%s, %s, %s, %s)", type, key, value, bool2str(sendGui));
+        carla_debug("CarlaPluginLV2::setCustomData(\"%s\", \"%s\", \"%s\", %s)", type, key, value, bool2str(sendGui));
+
+        if (std::strcmp(type, CUSTOM_DATA_TYPE_PATH) == 0)
+        {
+            if (std::strcmp(key, "file") != 0)
+                return;
+
+            CARLA_SAFE_ASSERT_RETURN(fFilePathURI.isNotEmpty(),);
+            CARLA_SAFE_ASSERT_RETURN(value[0] != '\0',);
+
+            carla_stdout("LV2 file path to send: '%s'", value);
+            writeAtomPath(value, getCustomURID(fFilePathURI));
+            return;
+        }
 
         if (std::strcmp(type, CUSTOM_DATA_TYPE_PROPERTY) == 0)
             return CarlaPlugin::setCustomData(type, key, value, sendGui);
@@ -1738,6 +1819,7 @@ public:
             pData->transientTryCounter = 0;
 #endif
 
+#ifndef LV2_UIS_ONLY_INPROCESS
         if (fUI.type == UI::TYPE_BRIDGE)
         {
             if (yesNo)
@@ -1854,7 +1936,7 @@ public:
                     if (! fPipeServer.writeMessage("show\n", 5))
                         return;
 
-                    fPipeServer.flushMessages();
+                    fPipeServer.syncMessages();
                 }
 
 #ifndef BUILD_BRIDGE
@@ -1868,6 +1950,7 @@ public:
             }
             return;
         }
+#endif
 
         // take some precautions
         CARLA_SAFE_ASSERT_RETURN(fUI.descriptor != nullptr,);
@@ -2049,6 +2132,8 @@ public:
         fUI.handle = fUI.descriptor->instantiate(fUI.descriptor, fRdfDescriptor->URI, fUI.rdfDescriptor->Bundle,
                                                  carla_lv2_ui_write_function, this, &fUI.widget, fFeatures);
 
+        updateUi();
+
         return fUI.widget;
     }
 #endif
@@ -2061,14 +2146,19 @@ public:
             CARLA_SAFE_ASSERT_RETURN(tmpRingBuffer.isDataAvailableForReading(),);
             CARLA_SAFE_ASSERT_RETURN(fExt.worker != nullptr && fExt.worker->work != nullptr,);
 
+            const size_t localSize = fAtomBufferWorkerIn.getSize();
+            uint8_t* const localData = new uint8_t[localSize];
+            LV2_Atom* const localAtom = static_cast<LV2_Atom*>(static_cast<void*>(localData));
+            localAtom->size = localSize;
             uint32_t portIndex;
-            const LV2_Atom* atom;
 
-            for (; tmpRingBuffer.get(atom, portIndex);)
+            for (; tmpRingBuffer.get(portIndex, localAtom); localAtom->size = localSize)
             {
-                CARLA_SAFE_ASSERT_CONTINUE(atom->type == kUridCarlaAtomWorkerIn);
-                fExt.worker->work(fHandle, carla_lv2_worker_respond, this, atom->size, LV2_ATOM_BODY_CONST(atom));
+                CARLA_SAFE_ASSERT_CONTINUE(localAtom->type == kUridCarlaAtomWorkerIn);
+                fExt.worker->work(fHandle, carla_lv2_worker_respond, this, localAtom->size, LV2_ATOM_BODY_CONST(localAtom));
             }
+
+            delete[] localData;
         }
 
         if (fInlineDisplayNeedsRedraw)
@@ -2130,29 +2220,38 @@ public:
             Lv2AtomRingBuffer tmpRingBuffer(fAtomBufferUiOut, fAtomBufferUiOutTmpData);
             CARLA_SAFE_ASSERT(tmpRingBuffer.isDataAvailableForReading());
 
+            const size_t localSize = fAtomBufferUiOut.getSize();
+            uint8_t* const localData = new uint8_t[localSize];
+            LV2_Atom* const localAtom = static_cast<LV2_Atom*>(static_cast<void*>(localData));
+            localAtom->size = localSize;
+
             uint32_t portIndex;
-            const LV2_Atom* atom;
             const bool hasPortEvent(fUI.handle != nullptr &&
                                     fUI.descriptor != nullptr &&
                                     fUI.descriptor->port_event != nullptr);
 
-            for (; tmpRingBuffer.get(atom, portIndex);)
+            for (; tmpRingBuffer.get(portIndex, localAtom); localAtom->size = localSize)
             {
+#ifndef LV2_UIS_ONLY_INPROCESS
                 if (fUI.type == UI::TYPE_BRIDGE)
                 {
                     if (fPipeServer.isPipeRunning())
-                        fPipeServer.writeLv2AtomMessage(portIndex, atom);
+                        fPipeServer.writeLv2AtomMessage(portIndex, localAtom);
                 }
                 else
+#endif
                 {
                     if (hasPortEvent && ! fNeedsUiClose)
-                        fUI.descriptor->port_event(fUI.handle, portIndex, lv2_atom_total_size(atom), kUridAtomTransferEvent, atom);
+                        fUI.descriptor->port_event(fUI.handle, portIndex, lv2_atom_total_size(localAtom), kUridAtomTransferEvent, localAtom);
                 }
 
-                inspectAtomForParameterChange(atom);
+                inspectAtomForParameterChange(localAtom);
             }
+
+            delete[] localData;
         }
 
+#ifndef LV2_UIS_ONLY_INPROCESS
         if (fPipeServer.isPipeRunning())
         {
             fPipeServer.idlePipe();
@@ -2181,6 +2280,7 @@ public:
         {
             // TODO - detect if ui-bridge crashed
         }
+#endif
 
         if (fNeedsUiClose)
         {
@@ -2259,7 +2359,7 @@ public:
 
         for (uint32_t i=0; i < portCount; ++i)
         {
-            const LV2_Property portTypes(fRdfDescriptor->Ports[i].Types);
+            const LV2_Property portTypes = fRdfDescriptor->Ports[i].Types;
 
             if (LV2_IS_PORT_AUDIO(portTypes))
             {
@@ -2393,7 +2493,7 @@ public:
 
             for (uint32_t i=0; i < count; ++i)
             {
-                const uint32_t& type(evIns.getAt(i, 0x0));
+                const uint32_t type = evIns.getAt(i, 0x0);
 
                 if (type == CARLA_EVENT_DATA_ATOM)
                 {
@@ -2425,7 +2525,7 @@ public:
 
             for (uint32_t i=0; i < count; ++i)
             {
-                const uint32_t& type(evOuts.getAt(i, 0x0));
+                const uint32_t type = evOuts.getAt(i, 0x0);
 
                 if (type == CARLA_EVENT_DATA_ATOM)
                 {
@@ -2870,7 +2970,7 @@ public:
                     else
                     {
                         pData->param.data[j].hints |= PARAMETER_IS_ENABLED;
-                        pData->param.data[j].hints |= PARAMETER_IS_AUTOMABLE;
+                        pData->param.data[j].hints |= PARAMETER_IS_AUTOMATABLE;
                         needsCtrlIn = true;
 
                         if (! LV2_IS_PORT_CAUSES_ARTIFACTS(portProps) &&
@@ -2927,7 +3027,7 @@ public:
                     else
                     {
                         pData->param.data[j].hints |= PARAMETER_IS_ENABLED;
-                        pData->param.data[j].hints |= PARAMETER_IS_AUTOMABLE;
+                        pData->param.data[j].hints |= PARAMETER_IS_AUTOMATABLE;
                         needsCtrlOut = true;
                     }
                 }
@@ -2950,13 +3050,13 @@ public:
                 if (LV2_IS_PORT_ENUMERATION(portProps))
                     pData->param.data[j].hints |= PARAMETER_USES_SCALEPOINTS;
 
-                // check if parameter is not enabled or automable
+                // check if parameter is not enabled or automatable
                 if (LV2_IS_PORT_NOT_ON_GUI(portProps))
-                    pData->param.data[j].hints &= ~(PARAMETER_IS_ENABLED|PARAMETER_IS_AUTOMABLE);
+                    pData->param.data[j].hints &= ~(PARAMETER_IS_ENABLED|PARAMETER_IS_AUTOMATABLE);
                 else if (LV2_IS_PORT_CAUSES_ARTIFACTS(portProps) || LV2_IS_PORT_EXPENSIVE(portProps))
-                    pData->param.data[j].hints &= ~PARAMETER_IS_AUTOMABLE;
-                else if (LV2_IS_PORT_NOT_AUTOMATIC(portProps) || LV2_IS_PORT_NON_AUTOMABLE(portProps))
-                    pData->param.data[j].hints &= ~PARAMETER_IS_AUTOMABLE;
+                    pData->param.data[j].hints &= ~PARAMETER_IS_AUTOMATABLE;
+                else if (LV2_IS_PORT_NOT_AUTOMATIC(portProps) || LV2_IS_PORT_NON_AUTOMATABLE(portProps))
+                    pData->param.data[j].hints &= ~PARAMETER_IS_AUTOMATABLE;
 
                 pData->param.ranges[j].min = min;
                 pData->param.ranges[j].max = max;
@@ -3076,7 +3176,7 @@ public:
             {
                 pData->param.data[j].type   = PARAMETER_INPUT;
                 pData->param.data[j].hints |= PARAMETER_IS_ENABLED;
-                pData->param.data[j].hints |= PARAMETER_IS_AUTOMABLE;
+                pData->param.data[j].hints |= PARAMETER_IS_AUTOMATABLE;
                 pData->param.data[j].hints |= PARAMETER_IS_NOT_SAVED;
                 needsCtrlIn = true;
 
@@ -3093,7 +3193,7 @@ public:
             {
                 pData->param.data[j].type   = PARAMETER_OUTPUT;
                 pData->param.data[j].hints |= PARAMETER_IS_ENABLED;
-                pData->param.data[j].hints |= PARAMETER_IS_AUTOMABLE;
+                pData->param.data[j].hints |= PARAMETER_IS_AUTOMATABLE;
                 needsCtrlOut = true;
                 hasPatchParameterOutputs = true;
             }
@@ -3145,19 +3245,31 @@ public:
 
         if (fExt.worker != nullptr && fEventsIn.ctrl != nullptr)
         {
-            fAtomBufferWorkerIn.createBuffer(eventBufferSize);
-            fAtomBufferWorkerResp.createBuffer(eventBufferSize);
-            fAtomBufferWorkerInTmpData = new uint8_t[fAtomBufferWorkerIn.getSize()];
+            fAtomBufferWorkerIn.createBuffer(eventBufferSize, true);
+            fAtomBufferWorkerResp.createBuffer(eventBufferSize, true);
+            fAtomBufferRealtimeSize = fAtomBufferWorkerIn.getSize(); // actual buffer size will be next power of 2
+            fAtomBufferRealtime = static_cast<LV2_Atom*>(std::malloc(fAtomBufferRealtimeSize));
+            fAtomBufferWorkerInTmpData = new uint8_t[fAtomBufferRealtimeSize];
+            carla_mlock(fAtomBufferRealtime, fAtomBufferRealtimeSize);
         }
 
         if (fRdfDescriptor->ParameterCount > 0 ||
             (fUI.type != UI::TYPE_NULL && fEventsIn.count > 0 && (fEventsIn.data[0].type & CARLA_EVENT_DATA_ATOM) != 0))
-            fAtomBufferEvIn.createBuffer(eventBufferSize);
+        {
+            fAtomBufferEvIn.createBuffer(eventBufferSize, true);
+
+            if (fAtomBufferRealtimeSize == 0)
+            {
+                fAtomBufferRealtimeSize = fAtomBufferEvIn.getSize(); // actual buffer size will be next power of 2
+                fAtomBufferRealtime = static_cast<LV2_Atom*>(std::malloc(fAtomBufferRealtimeSize));
+                carla_mlock(fAtomBufferRealtime, fAtomBufferRealtimeSize);
+            }
+        }
 
         if (hasPatchParameterOutputs ||
             (fUI.type != UI::TYPE_NULL && fEventsOut.count > 0 && (fEventsOut.data[0].type & CARLA_EVENT_DATA_ATOM) != 0))
         {
-            fAtomBufferUiOut.createBuffer(std::min(eventBufferSize*32, 1638400U));
+            fAtomBufferUiOut.createBuffer(std::min(eventBufferSize*32, 1638400U), true);
             fAtomBufferUiOutTmpData = new uint8_t[fAtomBufferUiOut.getSize()];
         }
 
@@ -3194,8 +3306,27 @@ public:
         {
             pData->hints |= PLUGIN_HAS_CUSTOM_UI;
 
+            if (fUI.type == UI::TYPE_EMBED)
+            {
+                switch (fUI.rdfDescriptor->Type)
+                {
+                case LV2_UI_GTK2:
+                case LV2_UI_GTK3:
+                case LV2_UI_QT4:
+                case LV2_UI_QT5:
+                case LV2_UI_EXTERNAL:
+                case LV2_UI_OLD_EXTERNAL:
+                    break;
+                default:
+                    pData->hints |= PLUGIN_HAS_CUSTOM_EMBED_UI;
+                    break;
+                }
+            }
+
             if (fUI.type == UI::TYPE_EMBED || fUI.type == UI::TYPE_EXTERNAL)
                 pData->hints |= PLUGIN_NEEDS_UI_MAIN_THREAD;
+            else if (fFilePathURI.isNotEmpty())
+                pData->hints |= PLUGIN_HAS_CUSTOM_UI_USING_FILE_OPEN;
         }
 
         if (LV2_IS_GENERATOR(fRdfDescriptor->Type[0], fRdfDescriptor->Type[1]))
@@ -3239,13 +3370,14 @@ public:
         // we need to pre-run the plugin so it can update its latency control-port
         const uint32_t bufferSize = static_cast<uint32_t>(fLv2Options.nominalBufferSize);
 
-        float tmpIn [( aIns+cvIns  > 0) ?  aIns+cvIns  : 1][bufferSize];
-        float tmpOut[(aOuts+cvOuts > 0) ? aOuts+cvOuts : 1][bufferSize];
+        float* tmpIn[96];
+        float* tmpOut[96];
 
         {
             uint32_t i=0;
             for (; i < aIns; ++i)
             {
+                tmpIn[i] = new float[bufferSize];
                 carla_zeroFloats(tmpIn[i], bufferSize);
 
                 try {
@@ -3255,6 +3387,7 @@ public:
 
             for (uint32_t j=0; j < cvIns; ++i, ++j)
             {
+                tmpIn[i] = new float[bufferSize];
                 carla_zeroFloats(tmpIn[i], bufferSize);
 
                 try {
@@ -3267,6 +3400,7 @@ public:
             uint32_t i=0;
             for (; i < aOuts; ++i)
             {
+                tmpOut[i] = new float[bufferSize];
                 carla_zeroFloats(tmpOut[i], bufferSize);
 
                 try {
@@ -3276,6 +3410,7 @@ public:
 
             for (uint32_t j=0; j < cvOuts; ++i, ++j)
             {
+                tmpOut[i] = new float[bufferSize];
                 carla_zeroFloats(tmpOut[i], bufferSize);
 
                 try {
@@ -3310,6 +3445,12 @@ public:
             pData->latency.recreateBuffers(std::max(aIns, aOuts), latency);
 #endif
         }
+
+        for (uint32_t i=0; i < aIns + cvIns; ++i)
+            delete[] tmpIn[i];
+
+        for (uint32_t i=0; i < aOuts + cvOuts; ++i)
+            delete[] tmpOut[i];
     }
 
     void reloadPrograms(const bool doInit) override
@@ -3489,29 +3630,26 @@ public:
         // --------------------------------------------------------------------------------------------------------
         // Event itenerators from different APIs (input)
 
-        LV2_Atom_Buffer_Iterator evInAtomIters[fEventsIn.count];
-        LV2_Event_Iterator       evInEventIters[fEventsIn.count];
-        LV2_MIDIState            evInMidiStates[fEventsIn.count];
-
         for (uint32_t i=0; i < fEventsIn.count; ++i)
         {
             if (fEventsIn.data[i].type & CARLA_EVENT_DATA_ATOM)
             {
                 lv2_atom_buffer_reset(fEventsIn.data[i].atom, true);
-                lv2_atom_buffer_begin(&evInAtomIters[i], fEventsIn.data[i].atom);
+                lv2_atom_buffer_begin(&fEventsIn.iters[i].atom, fEventsIn.data[i].atom);
             }
             else if (fEventsIn.data[i].type & CARLA_EVENT_DATA_EVENT)
             {
                 lv2_event_buffer_reset(fEventsIn.data[i].event, LV2_EVENT_AUDIO_STAMP, fEventsIn.data[i].event->data);
-                lv2_event_begin(&evInEventIters[i], fEventsIn.data[i].event);
+                lv2_event_begin(&fEventsIn.iters[i].event, fEventsIn.data[i].event);
             }
             else if (fEventsIn.data[i].type & CARLA_EVENT_DATA_MIDI_LL)
             {
                 fEventsIn.data[i].midi.event_count = 0;
                 fEventsIn.data[i].midi.size        = 0;
-                evInMidiStates[i].midi        = &fEventsIn.data[i].midi;
-                evInMidiStates[i].frame_count = frames;
-                evInMidiStates[i].position    = 0;
+                LV2_MIDIState& midiState(fEventsIn.iters[i].midiState);
+                midiState.midi        = &fEventsIn.data[i].midi;
+                midiState.frame_count = frames;
+                midiState.position    = 0;
             }
         }
 
@@ -3551,25 +3689,25 @@ public:
                         midiData[1] = MIDI_CONTROL_ALL_NOTES_OFF;
 
                         if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_ATOM)
-                            lv2_atom_buffer_write(&evInAtomIters[j], 0, 0, kUridMidiEvent, 3, midiData);
+                            lv2_atom_buffer_write(&fEventsIn.iters[j].atom, 0, 0, kUridMidiEvent, 3, midiData);
 
                         else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_EVENT)
-                            lv2_event_write(&evInEventIters[j], 0, 0, kUridMidiEvent, 3, midiData);
+                            lv2_event_write(&fEventsIn.iters[j].event, 0, 0, kUridMidiEvent, 3, midiData);
 
                         else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_MIDI_LL)
-                            lv2midi_put_event(&evInMidiStates[j], 0.0, 3, midiData);
+                            lv2midi_put_event(&fEventsIn.iters[j].midiState, 0.0, 3, midiData);
 
                         midiData[0] = uint8_t(MIDI_STATUS_CONTROL_CHANGE | (i & MIDI_CHANNEL_BIT));
                         midiData[1] = MIDI_CONTROL_ALL_SOUND_OFF;
 
                         if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_ATOM)
-                            lv2_atom_buffer_write(&evInAtomIters[j], 0, 0, kUridMidiEvent, 3, midiData);
+                            lv2_atom_buffer_write(&fEventsIn.iters[j].atom, 0, 0, kUridMidiEvent, 3, midiData);
 
                         else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_EVENT)
-                            lv2_event_write(&evInEventIters[j], 0, 0, kUridMidiEvent, 3, midiData);
+                            lv2_event_write(&fEventsIn.iters[j].event, 0, 0, kUridMidiEvent, 3, midiData);
 
                         else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_MIDI_LL)
-                            lv2midi_put_event(&evInMidiStates[j], 0.0, 3, midiData);
+                            lv2midi_put_event(&fEventsIn.iters[j].midiState, 0.0, 3, midiData);
                     }
                 }
                 else if (pData->ctrlChannel >= 0 && pData->ctrlChannel < MAX_MIDI_CHANNELS)
@@ -3580,13 +3718,13 @@ public:
                         midiData[1] = k;
 
                         if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_ATOM)
-                            lv2_atom_buffer_write(&evInAtomIters[j], 0, 0, kUridMidiEvent, 3, midiData);
+                            lv2_atom_buffer_write(&fEventsIn.iters[j].atom, 0, 0, kUridMidiEvent, 3, midiData);
 
                         else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_EVENT)
-                            lv2_event_write(&evInEventIters[j], 0, 0, kUridMidiEvent, 3, midiData);
+                            lv2_event_write(&fEventsIn.iters[j].event, 0, 0, kUridMidiEvent, 3, midiData);
 
                         else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_MIDI_LL)
-                            lv2midi_put_event(&evInMidiStates[j], 0.0, 3, midiData);
+                            lv2midi_put_event(&fEventsIn.iters[j].midiState, 0.0, 3, midiData);
                     }
                 }
             }
@@ -3753,10 +3891,10 @@ public:
                 CARLA_SAFE_ASSERT_BREAK(atom->size < 256);
 
                 // send only deprecated blank object for now
-                lv2_atom_buffer_write(&evInAtomIters[i], 0, 0, kUridAtomBlank, atom->size, LV2_ATOM_BODY_CONST(atom));
+                lv2_atom_buffer_write(&fEventsIn.iters[i].atom, 0, 0, kUridAtomBlank, atom->size, LV2_ATOM_BODY_CONST(atom));
 
                 // for atom:object
-                //lv2_atom_buffer_write(&evInAtomIters[i], 0, 0, atom->type, atom->size, LV2_ATOM_BODY_CONST(atom));
+                //lv2_atom_buffer_write(&fEventsIn.iters[i].atom, 0, 0, atom->type, atom->size, LV2_ATOM_BODY_CONST(atom));
             }
 
             pData->postRtEvents.trySplice();
@@ -3776,14 +3914,15 @@ public:
             {
                 if (fAtomBufferEvIn.isDataAvailableForReading())
                 {
-                    const LV2_Atom* atom;
                     uint32_t j, portIndex;
+                    LV2_Atom* const atom = fAtomBufferRealtime;
+                    atom->size = fAtomBufferRealtimeSize;
 
-                    for (; fAtomBufferEvIn.get(atom, portIndex);)
+                    for (; fAtomBufferEvIn.get(portIndex, atom); atom->size = fAtomBufferRealtimeSize)
                     {
                         j = (portIndex < fEventsIn.count) ? portIndex : fEventsIn.ctrlIndex;
 
-                        if (! lv2_atom_buffer_write(&evInAtomIters[j], 0, 0, atom->type, atom->size, LV2_ATOM_BODY_CONST(atom)))
+                        if (! lv2_atom_buffer_write(&fEventsIn.iters[j].atom, 0, 0, atom->type, atom->size, LV2_ATOM_BODY_CONST(atom)))
                         {
                             carla_stderr2("Event input buffer full, at least 1 message lost");
                             continue;
@@ -3821,13 +3960,13 @@ public:
                         midiEvent[2] = note.velo;
 
                         if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_ATOM)
-                            lv2_atom_buffer_write(&evInAtomIters[j], 0, 0, kUridMidiEvent, 3, midiEvent);
+                            lv2_atom_buffer_write(&fEventsIn.iters[j].atom, 0, 0, kUridMidiEvent, 3, midiEvent);
 
                         else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_EVENT)
-                            lv2_event_write(&evInEventIters[j], 0, 0, kUridMidiEvent, 3, midiEvent);
+                            lv2_event_write(&fEventsIn.iters[j].event, 0, 0, kUridMidiEvent, 3, midiEvent);
 
                         else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_MIDI_LL)
-                            lv2midi_put_event(&evInMidiStates[j], 0.0, 3, midiEvent);
+                            lv2midi_put_event(&fEventsIn.iters[j].midiState, 0.0, 3, midiEvent);
                     }
 
                     pData->extNotes.data.clear();
@@ -3892,18 +4031,18 @@ public:
                             if (fEventsIn.data[j].type & CARLA_EVENT_DATA_ATOM)
                             {
                                 lv2_atom_buffer_reset(fEventsIn.data[j].atom, true);
-                                lv2_atom_buffer_begin(&evInAtomIters[j], fEventsIn.data[j].atom);
+                                lv2_atom_buffer_begin(&fEventsIn.iters[j].atom, fEventsIn.data[j].atom);
                             }
                             else if (fEventsIn.data[j].type & CARLA_EVENT_DATA_EVENT)
                             {
                                 lv2_event_buffer_reset(fEventsIn.data[j].event, LV2_EVENT_AUDIO_STAMP, fEventsIn.data[j].event->data);
-                                lv2_event_begin(&evInEventIters[j], fEventsIn.data[j].event);
+                                lv2_event_begin(&fEventsIn.iters[j].event, fEventsIn.data[j].event);
                             }
                             else if (fEventsIn.data[j].type & CARLA_EVENT_DATA_MIDI_LL)
                             {
                                 fEventsIn.data[j].midi.event_count = 0;
                                 fEventsIn.data[j].midi.size        = 0;
-                                evInMidiStates[j].position         = eventTime;
+                                fEventsIn.iters[j].midiState.position = eventTime;
                             }
                         }
 
@@ -3954,7 +4093,7 @@ public:
 
                             ctrlEvent.handled = true;
                             value = pData->param.getFinalUnnormalizedValue(k, ctrlEvent.normalizedValue);
-                            setParameterValueRT(k, value, true);
+                            setParameterValueRT(k, value, event.time, true);
                             continue;
                         }
 
@@ -4010,7 +4149,7 @@ public:
                                 continue;
                             if (pData->param.data[k].type != PARAMETER_INPUT)
                                 continue;
-                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMABLE) == 0)
+                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMATABLE) == 0)
                                 continue;
 
                             ctrlEvent.handled = true;
@@ -4020,7 +4159,7 @@ public:
                             else
                                 value = pData->param.getFinalUnnormalizedValue(k, ctrlEvent.normalizedValue);
 
-                            setParameterValueRT(k, value, true);
+                            setParameterValueRT(k, value, event.time, true);
                         }
 
                         if ((pData->options & PLUGIN_OPTION_SEND_CONTROL_CHANGES) != 0 && ctrlEvent.param < MAX_MIDI_VALUE)
@@ -4028,18 +4167,18 @@ public:
                             uint8_t midiData[3];
                             midiData[0] = uint8_t(MIDI_STATUS_CONTROL_CHANGE | (event.channel & MIDI_CHANNEL_BIT));
                             midiData[1] = uint8_t(ctrlEvent.param);
-                            midiData[2] = uint8_t(ctrlEvent.normalizedValue*127.0f);
+                            midiData[2] = uint8_t(ctrlEvent.normalizedValue*127.0f + 0.5f);
 
                             const uint32_t mtime(isSampleAccurate ? startTime : eventTime);
 
                             if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_ATOM)
-                                lv2_atom_buffer_write(&evInAtomIters[fEventsIn.ctrlIndex], mtime, 0, kUridMidiEvent, 3, midiData);
+                                lv2_atom_buffer_write(&fEventsIn.iters[fEventsIn.ctrlIndex].atom, mtime, 0, kUridMidiEvent, 3, midiData);
 
                             else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_EVENT)
-                                lv2_event_write(&evInEventIters[fEventsIn.ctrlIndex], mtime, 0, kUridMidiEvent, 3, midiData);
+                                lv2_event_write(&fEventsIn.iters[fEventsIn.ctrlIndex].event, mtime, 0, kUridMidiEvent, 3, midiData);
 
                             else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_MIDI_LL)
-                                lv2midi_put_event(&evInMidiStates[fEventsIn.ctrlIndex], mtime, 3, midiData);
+                                lv2midi_put_event(&fEventsIn.iters[fEventsIn.ctrlIndex].midiState, mtime, 3, midiData);
                         }
 
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
@@ -4065,13 +4204,13 @@ public:
                             const uint32_t mtime(isSampleAccurate ? startTime : eventTime);
 
                             if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_ATOM)
-                                lv2_atom_buffer_write(&evInAtomIters[fEventsIn.ctrlIndex], mtime, 0, kUridMidiEvent, 3, midiData);
+                                lv2_atom_buffer_write(&fEventsIn.iters[fEventsIn.ctrlIndex].atom, mtime, 0, kUridMidiEvent, 3, midiData);
 
                             else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_EVENT)
-                                lv2_event_write(&evInEventIters[fEventsIn.ctrlIndex], mtime, 0, kUridMidiEvent, 3, midiData);
+                                lv2_event_write(&fEventsIn.iters[fEventsIn.ctrlIndex].event, mtime, 0, kUridMidiEvent, 3, midiData);
 
                             else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_MIDI_LL)
-                                lv2midi_put_event(&evInMidiStates[fEventsIn.ctrlIndex], mtime, 3, midiData);
+                                lv2midi_put_event(&fEventsIn.iters[fEventsIn.ctrlIndex].midiState, mtime, 3, midiData);
                         }
                         break;
 
@@ -4101,13 +4240,13 @@ public:
                             const uint32_t mtime(isSampleAccurate ? startTime : eventTime);
 
                             if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_ATOM)
-                                lv2_atom_buffer_write(&evInAtomIters[fEventsIn.ctrlIndex], mtime, 0, kUridMidiEvent, 2, midiData);
+                                lv2_atom_buffer_write(&fEventsIn.iters[fEventsIn.ctrlIndex].atom, mtime, 0, kUridMidiEvent, 2, midiData);
 
                             else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_EVENT)
-                                lv2_event_write(&evInEventIters[fEventsIn.ctrlIndex], mtime, 0, kUridMidiEvent, 2, midiData);
+                                lv2_event_write(&fEventsIn.iters[fEventsIn.ctrlIndex].event, mtime, 0, kUridMidiEvent, 2, midiData);
 
                             else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_MIDI_LL)
-                                lv2midi_put_event(&evInMidiStates[fEventsIn.ctrlIndex], mtime, 2, midiData);
+                                lv2midi_put_event(&fEventsIn.iters[fEventsIn.ctrlIndex].midiState, mtime, 2, midiData);
                         }
                         break;
 
@@ -4122,13 +4261,13 @@ public:
                             midiData[2] = 0;
 
                             if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_ATOM)
-                                lv2_atom_buffer_write(&evInAtomIters[fEventsIn.ctrlIndex], mtime, 0, kUridMidiEvent, 3, midiData);
+                                lv2_atom_buffer_write(&fEventsIn.iters[fEventsIn.ctrlIndex].atom, mtime, 0, kUridMidiEvent, 3, midiData);
 
                             else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_EVENT)
-                                lv2_event_write(&evInEventIters[fEventsIn.ctrlIndex], mtime, 0, kUridMidiEvent, 3, midiData);
+                                lv2_event_write(&fEventsIn.iters[fEventsIn.ctrlIndex].event, mtime, 0, kUridMidiEvent, 3, midiData);
 
                             else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_MIDI_LL)
-                                lv2midi_put_event(&evInMidiStates[fEventsIn.ctrlIndex], mtime, 3, midiData);
+                                lv2midi_put_event(&fEventsIn.iters[fEventsIn.ctrlIndex].midiState, mtime, 3, midiData);
                         }
                         break;
 
@@ -4151,13 +4290,13 @@ public:
                             midiData[2] = 0;
 
                             if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_ATOM)
-                                lv2_atom_buffer_write(&evInAtomIters[fEventsIn.ctrlIndex], mtime, 0, kUridMidiEvent, 3, midiData);
+                                lv2_atom_buffer_write(&fEventsIn.iters[fEventsIn.ctrlIndex].atom, mtime, 0, kUridMidiEvent, 3, midiData);
 
                             else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_EVENT)
-                                lv2_event_write(&evInEventIters[fEventsIn.ctrlIndex], mtime, 0, kUridMidiEvent, 3, midiData);
+                                lv2_event_write(&fEventsIn.iters[fEventsIn.ctrlIndex].event, mtime, 0, kUridMidiEvent, 3, midiData);
 
                             else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_MIDI_LL)
-                                lv2midi_put_event(&evInMidiStates[fEventsIn.ctrlIndex], mtime, 3, midiData);
+                                lv2midi_put_event(&fEventsIn.iters[fEventsIn.ctrlIndex].midiState, mtime, 3, midiData);
                         }
                         break;
                     } // switch (ctrlEvent.type)
@@ -4167,7 +4306,7 @@ public:
                 case kEngineEventTypeMidi: {
                     const EngineMidiEvent& midiEvent(event.midi);
 
-                    const uint8_t* const midiData(midiEvent.size > EngineMidiEvent::kDataSize ? midiEvent.dataExt : midiEvent.data);
+                    const uint8_t* const midiData = midiEvent.size > EngineMidiEvent::kDataSize ? midiEvent.dataExt : midiEvent.data;
 
                     uint8_t status = uint8_t(MIDI_GET_STATUS_FROM_DATA(midiData));
 
@@ -4190,18 +4329,22 @@ public:
                     const uint32_t mtime = isSampleAccurate ? startTime : eventTime;
 
                     // put back channel in data
-                    uint8_t midiData2[midiEvent.size];
-                    midiData2[0] = uint8_t(status | (event.channel & MIDI_CHANNEL_BIT));
-                    std::memcpy(midiData2+1, midiData+1, static_cast<std::size_t>(midiEvent.size-1));
+                    uint8_t midiData2[4]; // FIXME
+                    if (midiEvent.size > 4)
+                        continue;
+                    {
+                        midiData2[0] = uint8_t(status | (event.channel & MIDI_CHANNEL_BIT));
+                        std::memcpy(midiData2+1, midiData+1, static_cast<std::size_t>(midiEvent.size-1));
+                    }
 
                     if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_ATOM)
-                        lv2_atom_buffer_write(&evInAtomIters[j], mtime, 0, kUridMidiEvent, midiEvent.size, midiData2);
+                        lv2_atom_buffer_write(&fEventsIn.iters[j].atom, mtime, 0, kUridMidiEvent, midiEvent.size, midiData2);
 
                     else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_EVENT)
-                        lv2_event_write(&evInEventIters[j], mtime, 0, kUridMidiEvent, midiEvent.size, midiData2);
+                        lv2_event_write(&fEventsIn.iters[j].event, mtime, 0, kUridMidiEvent, midiEvent.size, midiData2);
 
                     else if (fEventsIn.ctrl->type & CARLA_EVENT_DATA_MIDI_LL)
-                        lv2midi_put_event(&evInMidiStates[j], mtime, midiEvent.size, midiData2);
+                        lv2midi_put_event(&fEventsIn.iters[j].midiState, mtime, midiEvent.size, midiData2);
 
                     if (status == MIDI_STATUS_NOTE_ON)
                     {
@@ -4238,10 +4381,11 @@ public:
         {
             if (fAtomBufferWorkerResp.isDataAvailableForReading())
             {
-                const LV2_Atom* atom;
                 uint32_t portIndex;
+                LV2_Atom* const atom = fAtomBufferRealtime;
+                atom->size = fAtomBufferRealtimeSize;
 
-                for (; fAtomBufferWorkerResp.get(atom, portIndex);)
+                for (; fAtomBufferWorkerResp.get(portIndex, atom); atom->size = fAtomBufferRealtimeSize)
                 {
                     CARLA_SAFE_ASSERT_CONTINUE(atom->type == kUridCarlaAtomWorkerResp);
                     fExt.worker->work_response(fHandle, atom->size, LV2_ATOM_BODY_CONST(atom));
@@ -4258,6 +4402,37 @@ public:
             if (fHandle2 != nullptr)
                 fExt.worker->end_run(fHandle2);
         }
+
+#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+        // --------------------------------------------------------------------------------------------------------
+        // Control Output
+
+        if (pData->event.portOut != nullptr)
+        {
+            uint8_t  channel;
+            uint16_t param;
+            float    value;
+
+            for (uint32_t k=0; k < pData->param.count; ++k)
+            {
+                if (pData->param.data[k].type != PARAMETER_OUTPUT)
+                    continue;
+
+                if (fStrictBounds >= 0 && (pData->param.data[k].hints & PARAMETER_IS_STRICT_BOUNDS) != 0)
+                    // plugin is responsible to ensure correct bounds
+                    pData->param.ranges[k].fixValue(fParamBuffers[k]);
+
+                if (pData->param.data[k].mappedControlIndex > 0)
+                {
+                    channel = pData->param.data[k].midiChannel;
+                    param   = static_cast<uint16_t>(pData->param.data[k].mappedControlIndex);
+                    value   = pData->param.ranges[k].getNormalizedValue(fParamBuffers[k]);
+                    pData->event.portOut->writeControlEvent(0, channel, kEngineControlEventTypeParameter,
+                                                            param, -1, value);
+                }
+            }
+        } // End of Control Output
+#endif
 
         // --------------------------------------------------------------------------------------------------------
         // Events/MIDI Output
@@ -4364,37 +4539,6 @@ public:
                 }
             }
         }
-
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
-        // --------------------------------------------------------------------------------------------------------
-        // Control Output
-
-        if (pData->event.portOut != nullptr)
-        {
-            uint8_t  channel;
-            uint16_t param;
-            float    value;
-
-            for (uint32_t k=0; k < pData->param.count; ++k)
-            {
-                if (pData->param.data[k].type != PARAMETER_OUTPUT)
-                    continue;
-
-                if (fStrictBounds >= 0 && (pData->param.data[k].hints & PARAMETER_IS_STRICT_BOUNDS) != 0)
-                    // plugin is responsible to ensure correct bounds
-                    pData->param.ranges[k].fixValue(fParamBuffers[k]);
-
-                if (pData->param.data[k].mappedControlIndex > 0)
-                {
-                    channel = pData->param.data[k].midiChannel;
-                    param   = static_cast<uint16_t>(pData->param.data[k].mappedControlIndex);
-                    value   = pData->param.ranges[k].getNormalizedValue(fParamBuffers[k]);
-                    pData->event.portOut->writeControlEvent(0, channel, kEngineControlEventTypeParameter,
-                                                            param, -1, value);
-                }
-            }
-        } // End of Control Output
-#endif
 
         fFirstActive = false;
 
@@ -4508,7 +4652,8 @@ public:
             const bool isMono    = (pData->audioIn.count == 1);
 
             bool isPair;
-            float bufValue, oldBufLeft[doBalance ? frames : 1];
+            float bufValue;
+            float* const oldBufLeft = pData->postProc.extraBuffer;
 
             for (uint32_t i=0; i < pData->audioOut.count; ++i)
             {
@@ -4727,6 +4872,8 @@ public:
         }
 
         carla_debug("CarlaPluginLV2::bufferSizeChanged(%i) - end", newBufferSize);
+
+        CarlaPlugin::bufferSizeChanged(newBufferSize);
     }
 
     void sampleRateChanged(const double newSampleRate) override
@@ -4876,12 +5023,14 @@ public:
         CARLA_SAFE_ASSERT_RETURN(index < pData->param.count,);
         CARLA_SAFE_ASSERT_RETURN(pData->param.data[index].rindex >= 0,);
 
+#ifndef LV2_UIS_ONLY_INPROCESS
         if (fUI.type == UI::TYPE_BRIDGE)
         {
             if (! fPipeServer.isPipeRunning())
                 return;
         }
         else
+#endif
         {
             if (fUI.handle == nullptr)
                 return;
@@ -4903,11 +5052,14 @@ public:
 
             const char* const uri = fRdfDescriptor->Parameters[rindex].URI;
 
+#ifndef LV2_UIS_ONLY_INPROCESS
             if (fUI.type == UI::TYPE_BRIDGE)
             {
                 fPipeServer.writeLv2ParameterMessage(uri, value);
             }
-            else if (fEventsIn.ctrl != nullptr)
+            else
+#endif
+            if (fEventsIn.ctrl != nullptr)
             {
                 uint8_t atomBuf[256];
                 LV2_Atom_Forge atomForge;
@@ -4961,11 +5113,13 @@ public:
         }
         else
         {
+#ifndef LV2_UIS_ONLY_INPROCESS
             if (fUI.type == UI::TYPE_BRIDGE)
             {
                 fPipeServer.writeControlMessage(static_cast<uint32_t>(pData->param.data[index].rindex), value);
             }
             else
+#endif
             {
                 fUI.descriptor->port_event(fUI.handle,
                                            static_cast<uint32_t>(pData->param.data[index].rindex),
@@ -4979,12 +5133,14 @@ public:
         CARLA_SAFE_ASSERT_RETURN(fUI.type != UI::TYPE_NULL || fFilePathURI.isNotEmpty(),);
         CARLA_SAFE_ASSERT_RETURN(index < pData->midiprog.count,);
 
+#ifndef LV2_UIS_ONLY_INPROCESS
         if (fUI.type == UI::TYPE_BRIDGE)
         {
             if (fPipeServer.isPipeRunning())
                 fPipeServer.writeMidiProgramMessage(pData->midiprog.data[index].bank, pData->midiprog.data[index].program);
         }
         else
+#endif
         {
             if (fExt.uiprograms != nullptr && fExt.uiprograms->select_program != nullptr && ! fNeedsUiClose)
                 fExt.uiprograms->select_program(fUI.handle, pData->midiprog.data[index].bank, pData->midiprog.data[index].program);
@@ -5599,8 +5755,10 @@ public:
 
         fCustomURIDs.push_back(uri);
 
+#ifndef LV2_UIS_ONLY_INPROCESS
         if (fUI.type == UI::TYPE_BRIDGE && fPipeServer.isPipeRunning())
             fPipeServer.writeLv2UridMessage(urid, uri);
+#endif
 
         return urid;
     }
@@ -5681,7 +5839,7 @@ public:
             return nullptr;
         }
 
-        water::String basedir(pData->engine->getName());
+        CarlaString basedir(pData->engine->getName());
 
         if (temporary)
             basedir += ".tmp";
@@ -5709,7 +5867,7 @@ public:
             {
                 // seems like a normal save, let's be nice and put a symlink
                 const water::String abstractFilename(wabsolutePath.getFileName());
-                const File targetPath(targetDir.getChildFile(abstractFilename));
+                const File targetPath(targetDir.getChildFile(abstractFilename.toRawUTF8()));
 
                 wabsolutePath.createSymbolicLink(targetPath, true);
 
@@ -5744,7 +5902,7 @@ public:
             return File();
         }
 
-        water::String basedir(pData->engine->getName());
+        CarlaString basedir(pData->engine->getName());
 
         if (temporary)
             basedir += ".tmp";
@@ -5758,7 +5916,7 @@ public:
         if (File::isAbsolutePath(abstractPath))
         {
             File wabstractPath(abstractPath);
-            targetPath = targetDir.getChildFile(wabstractPath.getFileName());
+            targetPath = targetDir.getChildFile(wabstractPath.getFileName().toRawUTF8());
 
             if (symlinkIfNeeded)
             {
@@ -5982,6 +6140,28 @@ public:
 
     // -------------------------------------------------------------------
 
+    LV2_ControlInputPort_Change_Status handleCtrlInPortChangeReq(const uint32_t rindex, const float value)
+    {
+        CARLA_SAFE_ASSERT_RETURN(fParamBuffers != nullptr, LV2_CONTROL_INPUT_PORT_CHANGE_ERR_UNKNOWN);
+
+        for (uint32_t i=0; i < pData->param.count; ++i)
+        {
+            if (pData->param.data[i].rindex != static_cast<int32_t>(rindex))
+                continue;
+
+            const uint32_t index = i;
+            const float fixedValue = pData->param.getFixedValue(index, value);
+            fParamBuffers[index] = fixedValue;
+
+            CarlaPlugin::setParameterValueRT(index, fixedValue, 0, true);
+            return LV2_CONTROL_INPUT_PORT_CHANGE_SUCCESS;
+        }
+
+        return LV2_CONTROL_INPUT_PORT_CHANGE_ERR_INVALID_INDEX;
+    }
+
+    // -------------------------------------------------------------------
+
     void handleExternalUIClosed()
     {
         CARLA_SAFE_ASSERT_RETURN(fUI.type == UI::TYPE_EXTERNAL,);
@@ -6077,7 +6257,7 @@ public:
         else
         {
             CARLA_SAFE_ASSERT_RETURN(fUI.window != nullptr, 1);
-            fUI.window->setSize(static_cast<uint>(width), static_cast<uint>(height), true);
+            fUI.window->setSize(static_cast<uint>(width), static_cast<uint>(height), true, true);
         }
 
         return 0;
@@ -6268,7 +6448,7 @@ public:
         {
             if (pData->param.data[i].rindex == rindex)
             {
-                setParameterValueRT(i, paramValue, true);
+                setParameterValueRT(i, paramValue, 0, true);
                 break;
             }
         }
@@ -6286,10 +6466,12 @@ public:
         return fDescriptor;
     }
 
+#ifndef LV2_UIS_ONLY_INPROCESS
     uintptr_t getUiBridgeProcessId() const noexcept override
     {
         return fPipeServer.isPipeRunning() ? fPipeServer.getPID() : 0;
     }
+#endif
 
     // -------------------------------------------------------------------
 
@@ -6621,6 +6803,10 @@ public:
         midnam->handle = this;
         midnam->update = carla_lv2_midnam_update;
 
+        LV2_ControlInputPort_Change_Request* const portChangeReq = new LV2_ControlInputPort_Change_Request;
+        portChangeReq->handle = this;
+        portChangeReq->request_change = carla_lv2_ctrl_in_port_change_req;
+
         // ---------------------------------------------------------------
         // initialize features (part 2)
 
@@ -6697,6 +6883,9 @@ public:
 
         fFeatures[kFeatureIdMidnam]->URI  = LV2_MIDNAM__update;
         fFeatures[kFeatureIdMidnam]->data = midnam;
+
+        fFeatures[kFeatureIdCtrlInPortChangeReq]->URI  = LV2_CONTROL_INPUT_PORT_CHANGE_REQUEST_URI;
+        fFeatures[kFeatureIdCtrlInPortChangeReq]->data = portChangeReq;
 
         // ---------------------------------------------------------------
         // initialize features (part 3)
@@ -6977,8 +7166,9 @@ public:
         // ---------------------------------------------------------------
         // initialize ui according to type
 
-        const LV2_Property uiType(fUI.rdfDescriptor->Type);
+        const LV2_Property uiType = fUI.rdfDescriptor->Type;
 
+#ifndef LV2_UIS_ONLY_INPROCESS
         if (
             (iFinal == eQt4     ||
              iFinal == eQt5     ||
@@ -7028,6 +7218,7 @@ public:
                 return;
             }
         }
+#endif
 
 #ifdef LV2_UIS_ONLY_BRIDGES
         carla_stderr2("Failed to get an UI working, canBridge:%s", bool2str(isUiBridgeable(static_cast<uint32_t>(iFinal))));
@@ -7364,11 +7555,15 @@ private:
     Lv2AtomRingBuffer fAtomBufferWorkerResp;
     uint8_t*          fAtomBufferUiOutTmpData;
     uint8_t*          fAtomBufferWorkerInTmpData;
+    LV2_Atom*         fAtomBufferRealtime;
+    uint32_t          fAtomBufferRealtimeSize;
 
     CarlaPluginLV2EventData fEventsIn;
     CarlaPluginLV2EventData fEventsOut;
     CarlaPluginLV2Options   fLv2Options;
+#ifndef LV2_UIS_ONLY_INPROCESS
     CarlaPipeServerLV2      fPipeServer;
+#endif
 
     std::vector<std::string> fCustomURIDs;
 
@@ -7403,13 +7598,15 @@ private:
               uiresize(nullptr),
               uiprograms(nullptr) {}
 
-        CARLA_DECLARE_NON_COPY_STRUCT(Extensions);
+        CARLA_DECLARE_NON_COPYABLE(Extensions);
     } fExt;
 
     struct UI {
         enum Type {
             TYPE_NULL = 0,
+#ifndef LV2_UIS_ONLY_INPROCESS
             TYPE_BRIDGE,
+#endif
             TYPE_EMBED,
             TYPE_EXTERNAL
         };
@@ -7447,7 +7644,7 @@ private:
             CARLA_SAFE_ASSERT(window == nullptr);
         }
 
-        CARLA_DECLARE_NON_COPY_STRUCT(UI);
+        CARLA_DECLARE_NON_COPYABLE(UI);
     } fUI;
 
     // -------------------------------------------------------------------
@@ -7565,21 +7762,29 @@ private:
         std::free(path);
     }
 
-    static char* carla_lv2_state_make_path_real(LV2_State_Make_Path_Handle handle, const char* const path)
+    static char* carla_lv2_state_make_path_real(LV2_State_Make_Path_Handle handle, const char* path)
     {
         CARLA_SAFE_ASSERT_RETURN(handle != nullptr, nullptr);
-        CARLA_SAFE_ASSERT_RETURN(path != nullptr && path[0] != '\0', nullptr);
+        CARLA_SAFE_ASSERT_RETURN(path != nullptr, nullptr);
         carla_debug("carla_lv2_state_make_path_real(%p, \"%s\")", handle, path);
+
+        // allow empty paths to mean "current dir"
+        if (path[0] == '\0')
+            path = ".";
 
         const File file(((CarlaPluginLV2*)handle)->handleStateMapToAbsolutePath(true, false, false, path));
         return file.isNotNull() ? strdup(file.getFullPathName().toRawUTF8()) : nullptr;
     }
 
-    static char* carla_lv2_state_make_path_tmp(LV2_State_Make_Path_Handle handle, const char* const path)
+    static char* carla_lv2_state_make_path_tmp(LV2_State_Make_Path_Handle handle, const char* path)
     {
         CARLA_SAFE_ASSERT_RETURN(handle != nullptr, nullptr);
-        CARLA_SAFE_ASSERT_RETURN(path != nullptr && path[0] != '\0', nullptr);
+        CARLA_SAFE_ASSERT_RETURN(path != nullptr, nullptr);
         carla_debug("carla_lv2_state_make_path_tmp(%p, \"%s\")", handle, path);
+
+        // allow empty paths to mean "current dir"
+        if (path[0] == '\0')
+            path = ".";
 
         const File file(((CarlaPluginLV2*)handle)->handleStateMapToAbsolutePath(true, false, true, path));
         return file.isNotNull() ? strdup(file.getFullPathName().toRawUTF8()) : nullptr;
@@ -7588,8 +7793,12 @@ private:
     static char* carla_lv2_state_map_to_abstract_path_real(LV2_State_Map_Path_Handle handle, const char* const absolute_path)
     {
         CARLA_SAFE_ASSERT_RETURN(handle != nullptr, nullptr);
-        CARLA_SAFE_ASSERT_RETURN(absolute_path != nullptr && absolute_path[0] != '\0', nullptr);
+        CARLA_SAFE_ASSERT_RETURN(absolute_path != nullptr, nullptr);
         carla_debug("carla_lv2_state_map_to_abstract_path_real(%p, \"%s\")", handle, absolute_path);
+
+        // handle invalid empty paths the same way as lilv
+        if (absolute_path[0] == '\0')
+            return strdup("");
 
         return ((CarlaPluginLV2*)handle)->handleStateMapToAbstractPath(false, absolute_path);
     }
@@ -7597,27 +7806,39 @@ private:
     static char* carla_lv2_state_map_to_abstract_path_tmp(LV2_State_Map_Path_Handle handle, const char* const absolute_path)
     {
         CARLA_SAFE_ASSERT_RETURN(handle != nullptr, nullptr);
-        CARLA_SAFE_ASSERT_RETURN(absolute_path != nullptr && absolute_path[0] != '\0', nullptr);
+        CARLA_SAFE_ASSERT_RETURN(absolute_path != nullptr, nullptr);
         carla_debug("carla_lv2_state_map_to_abstract_path_tmp(%p, \"%s\")", handle, absolute_path);
+
+        // handle invalid empty paths the same way as lilv
+        if (absolute_path[0] == '\0')
+            return strdup("");
 
         return ((CarlaPluginLV2*)handle)->handleStateMapToAbstractPath(true, absolute_path);
     }
 
-    static char* carla_lv2_state_map_to_absolute_path_real(LV2_State_Map_Path_Handle handle, const char* const abstract_path)
+    static char* carla_lv2_state_map_to_absolute_path_real(LV2_State_Map_Path_Handle handle, const char* abstract_path)
     {
         CARLA_SAFE_ASSERT_RETURN(handle != nullptr, nullptr);
-        CARLA_SAFE_ASSERT_RETURN(abstract_path != nullptr && abstract_path[0] != '\0', nullptr);
+        CARLA_SAFE_ASSERT_RETURN(abstract_path != nullptr, nullptr);
         carla_debug("carla_lv2_state_map_to_absolute_path_real(%p, \"%s\")", handle, abstract_path);
+
+        // allow empty paths to mean "current dir"
+        if (abstract_path[0] == '\0')
+            abstract_path = ".";
 
         const File file(((CarlaPluginLV2*)handle)->handleStateMapToAbsolutePath(true, true, false, abstract_path));
         return file.isNotNull() ? strdup(file.getFullPathName().toRawUTF8()) : nullptr;
     }
 
-    static char* carla_lv2_state_map_to_absolute_path_tmp(LV2_State_Map_Path_Handle handle, const char* const abstract_path)
+    static char* carla_lv2_state_map_to_absolute_path_tmp(LV2_State_Map_Path_Handle handle, const char* abstract_path)
     {
         CARLA_SAFE_ASSERT_RETURN(handle != nullptr, nullptr);
-        CARLA_SAFE_ASSERT_RETURN(abstract_path != nullptr && abstract_path[0] != '\0', nullptr);
+        CARLA_SAFE_ASSERT_RETURN(abstract_path != nullptr, nullptr);
         carla_debug("carla_lv2_state_map_to_absolute_path_tmp(%p, \"%s\")", handle, abstract_path);
+
+        // allow empty paths to mean "current dir"
+        if (abstract_path[0] == '\0')
+            abstract_path = ".";
 
         const File file(((CarlaPluginLV2*)handle)->handleStateMapToAbsolutePath(true, true, true, abstract_path));
         return file.isNotNull() ? strdup(file.getFullPathName().toRawUTF8()) : nullptr;
@@ -7771,8 +7992,10 @@ private:
             return kUridBackgroundColor;
         if (std::strcmp(uri, LV2_UI__foregroundColor) == 0)
             return kUridForegroundColor;
+#ifndef CARLA_OS_MAC
         if (std::strcmp(uri, LV2_UI__scaleFactor) == 0)
             return kUridScaleFactor;
+#endif
         if (std::strcmp(uri, LV2_UI__windowTitle) == 0)
             return kUridWindowTitle;
 
@@ -7909,8 +8132,10 @@ private:
             return LV2_UI__backgroundColor;
         case kUridForegroundColor:
             return LV2_UI__foregroundColor;
+#ifndef CARLA_OS_MAC
         case kUridScaleFactor:
             return LV2_UI__scaleFactor;
+#endif
         case kUridWindowTitle:
             return LV2_UI__windowTitle;
 
@@ -7968,6 +8193,18 @@ private:
         carla_stdout("carla_lv2_midnam_update(%p)", handle);
 
         ((CarlaPluginLV2*)handle)->handleMidnamUpdate();
+    }
+
+    // -------------------------------------------------------------------
+    // ControlInputPort change request Feature
+
+    static LV2_ControlInputPort_Change_Status carla_lv2_ctrl_in_port_change_req(
+        LV2_ControlInputPort_Change_Request_Handle handle, uint32_t index, float value)
+    {
+        CARLA_SAFE_ASSERT_RETURN(handle != nullptr, LV2_CONTROL_INPUT_PORT_CHANGE_ERR_UNKNOWN);
+        carla_stdout("carla_lv2_ctrl_in_port_change_req(%p, %u, %f)", handle, index, value);
+
+        return ((CarlaPluginLV2*)handle)->handleCtrlInPortChangeReq(index, value);
     }
 
     // -------------------------------------------------------------------
@@ -8057,6 +8294,7 @@ private:
 
 // -------------------------------------------------------------------------------------------------------------------
 
+#ifndef LV2_UIS_ONLY_INPROCESS
 bool CarlaPipeServerLV2::msgReceived(const char* const msg) noexcept
 {
     if (std::strcmp(msg, "exiting") == 0)
@@ -8187,6 +8425,7 @@ bool CarlaPipeServerLV2::msgReceived(const char* const msg) noexcept
 
     return false;
 }
+#endif
 
 // -------------------------------------------------------------------------------------------------------------------
 
@@ -8200,6 +8439,7 @@ CarlaPluginPtr CarlaPlugin::newLV2(const Initializer& init)
     if (plugin->init(plugin, init.name, init.label, init.options, needsArchBridge))
         return plugin;
 
+   #ifndef CARLA_OS_WASM
     if (needsArchBridge != nullptr)
     {
         CarlaString bridgeBinary(init.engine->getOptions().binaryDir);
@@ -8207,6 +8447,7 @@ CarlaPluginPtr CarlaPlugin::newLV2(const Initializer& init)
 
         return CarlaPlugin::newBridge(init, BINARY_NATIVE, PLUGIN_LV2, needsArchBridge, bridgeBinary);
     }
+   #endif
 
     return nullptr;
 }

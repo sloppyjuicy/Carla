@@ -1,6 +1,6 @@
 /*
  * Carla Bridge UI
- * Copyright (C) 2011-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -20,6 +20,7 @@
 
 #include "CarlaBase64Utils.hpp"
 #include "CarlaProcessUtils.hpp"
+#include "CarlaTimeUtils.hpp"
 
 #include "CarlaMIDI.h"
 
@@ -82,14 +83,9 @@ bool CarlaBridgeFormat::libOpen(const char* const filename) noexcept
     CARLA_SAFE_ASSERT_RETURN(fLib == nullptr, false);
 
     fLib = lib_open(filename);
+    fLibFilename = filename;
 
-    if (fLib != nullptr)
-    {
-        fLibFilename = filename;
-        return true;
-    }
-
-    return false;
+    return fLib != nullptr;
 }
 
 void* CarlaBridgeFormat::libSymbol(const char* const symbol) const noexcept
@@ -254,7 +250,7 @@ bool CarlaBridgeFormat::msgReceived(const char* const msg) noexcept
         opts.transientWindowId = transientWindowId;
 
         // we can assume we are not standalone if we got options from controller side
-        opts.isStandalone = true;
+        opts.isStandalone = false;
 
         fGotOptions = true;
         uiOptionsChanged(opts);

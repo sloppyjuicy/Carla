@@ -1,35 +1,46 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-# A piano roll viewer/editor
-# Copyright (C) 2012-2021 Filipe Coelho <falktx@falktx.com>
-# Copyright (C) 2014-2015 Perry Nguyen
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License as
-# published by the Free Software Foundation; either version 2 of
-# the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# For a full copy of the GNU General Public License see the doc/GPL.txt file.
+# SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+# SPDX-FileCopyrightText: 2014-2015 Perry Nguyen
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # ------------------------------------------------------------------------------------------------------------
 # Imports (Global)
 
-from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal
-from PyQt5.QtGui import QColor, QCursor, QFont, QPen, QPainter, QTransform
-from PyQt5.QtWidgets import QGraphicsItem, QGraphicsLineItem, QGraphicsOpacityEffect, QGraphicsRectItem, QGraphicsSimpleTextItem
-from PyQt5.QtWidgets import QGraphicsScene, QGraphicsView
-from PyQt5.QtWidgets import QApplication, QComboBox, QHBoxLayout, QLabel, QStyle, QVBoxLayout, QWidget
+from qt_compat import qt_config
+
+if qt_config == 5:
+    from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal
+    from PyQt5.QtGui import QColor, QCursor, QFont, QPen, QPainter
+    from PyQt5.QtWidgets import (
+        QApplication,
+        QGraphicsItem,
+        QGraphicsLineItem,
+        QGraphicsRectItem,
+        QGraphicsSimpleTextItem,
+        QGraphicsScene,
+        QGraphicsView,
+        QStyle,
+        QWidget,
+    )
+elif qt_config == 6:
+    from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
+    from PyQt6.QtGui import QColor, QCursor, QFont, QPen, QPainter
+    from PyQt6.QtWidgets import (
+        QApplication,
+        QGraphicsItem,
+        QGraphicsLineItem,
+        QGraphicsRectItem,
+        QGraphicsSimpleTextItem,
+        QGraphicsScene,
+        QGraphicsView,
+        QStyle,
+        QWidget,
+    )
 
 # ------------------------------------------------------------------------------------------------------------
 # Imports (Custom)
 
-from carla_shared import *
+#from carla_shared import *
 
 # ------------------------------------------------------------------------------------------------------------
 # MIDI definitions, copied from CarlaMIDI.h
@@ -57,17 +68,26 @@ def MIDI_IS_SYSTEM_MESSAGE(status):  return status >= MIDI_STATUS_BIT      and s
 def MIDI_IS_OSC_MESSAGE(status):     return status == '/'                   or status == '#'
 
 # MIDI Channel message type
-def MIDI_IS_STATUS_NOTE_OFF(status):              return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_NOTE_OFF
-def MIDI_IS_STATUS_NOTE_ON(status):               return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_NOTE_ON
-def MIDI_IS_STATUS_POLYPHONIC_AFTERTOUCH(status): return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_POLYPHONIC_AFTERTOUCH
-def MIDI_IS_STATUS_CONTROL_CHANGE(status):        return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_CONTROL_CHANGE
-def MIDI_IS_STATUS_PROGRAM_CHANGE(status):        return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_PROGRAM_CHANGE
-def MIDI_IS_STATUS_CHANNEL_PRESSURE(status):      return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_CHANNEL_PRESSURE
-def MIDI_IS_STATUS_PITCH_WHEEL_CONTROL(status):   return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_PITCH_WHEEL_CONTROL
+def MIDI_IS_STATUS_NOTE_OFF(status):
+    return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_NOTE_OFF
+def MIDI_IS_STATUS_NOTE_ON(status):
+    return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_NOTE_ON
+def MIDI_IS_STATUS_POLYPHONIC_AFTERTOUCH(status):
+    return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_POLYPHONIC_AFTERTOUCH
+def MIDI_IS_STATUS_CONTROL_CHANGE(status):
+    return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_CONTROL_CHANGE
+def MIDI_IS_STATUS_PROGRAM_CHANGE(status):
+    return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_PROGRAM_CHANGE
+def MIDI_IS_STATUS_CHANNEL_PRESSURE(status):
+    return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_CHANNEL_PRESSURE
+def MIDI_IS_STATUS_PITCH_WHEEL_CONTROL(status):
+    return MIDI_IS_CHANNEL_MESSAGE(status) and (status & MIDI_STATUS_BIT) == MIDI_STATUS_PITCH_WHEEL_CONTROL
 
 # MIDI Utils
-def MIDI_GET_STATUS_FROM_DATA(data):  return data[0] & MIDI_STATUS_BIT  if MIDI_IS_CHANNEL_MESSAGE(data[0]) else data[0]
-def MIDI_GET_CHANNEL_FROM_DATA(data): return data[0] & MIDI_CHANNEL_BIT if MIDI_IS_CHANNEL_MESSAGE(data[0]) else 0
+def MIDI_GET_STATUS_FROM_DATA(data):
+    return data[0] & MIDI_STATUS_BIT  if MIDI_IS_CHANNEL_MESSAGE(data[0]) else data[0]
+def MIDI_GET_CHANNEL_FROM_DATA(data):
+    return data[0] & MIDI_CHANNEL_BIT if MIDI_IS_CHANNEL_MESSAGE(data[0]) else 0
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Graphics Items

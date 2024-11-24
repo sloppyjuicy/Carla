@@ -1,6 +1,6 @@
 /*
  * Carla Bridge UI
- * Copyright (C) 2014-2021 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2014-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -20,6 +20,8 @@
 
 #include "CarlaMainLoop.hpp"
 #include "CarlaPluginUI.hpp"
+#include "CarlaTimeUtils.hpp"
+#include "CarlaUtils.h"
 
 #if defined(CARLA_OS_MAC) && defined(BRIDGE_COCOA)
 # include "CarlaMacUtils.hpp"
@@ -31,7 +33,7 @@
 
 CARLA_BRIDGE_UI_START_NAMESPACE
 
-using CarlaBackend::runMainLoopOnce;
+using CARLA_BACKEND_NAMESPACE::runMainLoopOnce;
 
 // -------------------------------------------------------------------------
 
@@ -61,7 +63,7 @@ public:
         const CarlaBridgeFormat::Options& options(fPlugin->getOptions());
 
 #if defined(CARLA_OS_MAC) && defined(BRIDGE_COCOA)
-        CarlaBackend::initStandaloneApplication();
+        CARLA_BACKEND_NAMESPACE::initStandaloneApplication();
         fHostUI = CarlaPluginUI::newCocoa(this, 0, options.isStandalone, options.isResizable);
 #elif defined(CARLA_OS_WIN) && defined(BRIDGE_HWND)
         fHostUI = CarlaPluginUI::newWindows(this, 0, options.isStandalone, options.isResizable);
@@ -71,9 +73,14 @@ public:
 #endif
         CARLA_SAFE_ASSERT_RETURN(fHostUI != nullptr, false);
 
+#ifndef CARLA_OS_MAC
+        if (options.isStandalone)
+            fPlugin->setScaleFactor(carla_get_desktop_scale_factor());
+#endif
+
         fHostUI->setTitle(options.windowTitle.buffer());
 
-#if (defined(CARLA_OS_WIN) && defined(BRIDGE_HWND)) || (defined(HAVE_X11) && defined(BRIDGE_X11))
+#ifndef CARLA_OS_MAC
         if (options.transientWindowId != 0)
         {
             fHostUI->setTransientWinId(options.transientWindowId);
@@ -172,7 +179,7 @@ public:
         CARLA_SAFE_ASSERT_RETURN(height > 0,);
         carla_debug("CarlaBridgeToolkitNative::resize(%i, %i)", width, height);
 
-        fHostUI->setSize(width, height, false);
+        fHostUI->setSize(width, height, false, false);
     }
 
     void setTitle(const char* const title) override
@@ -234,6 +241,6 @@ CARLA_BRIDGE_UI_END_NAMESPACE
 
 #define CARLA_PLUGIN_UI_CLASS_PREFIX ToolkitNative
 #include "CarlaPluginUI.cpp"
-#include "CarlaMacUtils.cpp"
+#include "utils/Windows.cpp"
 
 // -------------------------------------------------------------------------

@@ -424,11 +424,11 @@ public:
         CarlaPlugin::setParameterValue(parameterId, fixedValue, sendGui, sendOsc, sendCallback);
     }
 
-    void setParameterValueRT(const uint32_t parameterId, const float value, const bool sendCallbackLater) noexcept override
+    void setParameterValueRT(const uint32_t parameterId, const float value, const uint32_t frameOffset, const bool sendCallbackLater) noexcept override
     {
         const float fixedValue = setParameterValueInFluidSynth(parameterId, value);
 
-        CarlaPlugin::setParameterValueRT(parameterId, fixedValue, sendCallbackLater);
+        CarlaPlugin::setParameterValueRT(parameterId, fixedValue, frameOffset, sendCallbackLater);
     }
 
     float setParameterValueInFluidSynth(const uint32_t parameterId, const float value) noexcept
@@ -767,7 +767,7 @@ public:
             // ----------------------
             j = FluidSynthReverbOnOff;
             pData->param.data[j].type   = PARAMETER_INPUT;
-            pData->param.data[j].hints  = PARAMETER_IS_ENABLED /*| PARAMETER_IS_AUTOMABLE*/ | PARAMETER_IS_BOOLEAN;
+            pData->param.data[j].hints  = PARAMETER_IS_ENABLED /*| PARAMETER_IS_AUTOMATABLE*/ | PARAMETER_IS_BOOLEAN;
             pData->param.data[j].index  = j;
             pData->param.data[j].rindex = j;
             pData->param.ranges[j].min = 0.0f;
@@ -780,7 +780,7 @@ public:
             // ----------------------
             j = FluidSynthReverbRoomSize;
             pData->param.data[j].type   = PARAMETER_INPUT;
-            pData->param.data[j].hints  = PARAMETER_IS_ENABLED /*| PARAMETER_IS_AUTOMABLE*/;
+            pData->param.data[j].hints  = PARAMETER_IS_ENABLED /*| PARAMETER_IS_AUTOMATABLE*/;
             pData->param.data[j].index  = j;
             pData->param.data[j].rindex = j;
             pData->param.ranges[j].min = 0.0f;
@@ -793,7 +793,7 @@ public:
             // ----------------------
             j = FluidSynthReverbDamp;
             pData->param.data[j].type   = PARAMETER_INPUT;
-            pData->param.data[j].hints  = PARAMETER_IS_ENABLED /*| PARAMETER_IS_AUTOMABLE*/;
+            pData->param.data[j].hints  = PARAMETER_IS_ENABLED /*| PARAMETER_IS_AUTOMATABLE*/;
             pData->param.data[j].index  = j;
             pData->param.data[j].rindex = j;
             pData->param.ranges[j].min = 0.0f;
@@ -806,7 +806,7 @@ public:
             // ----------------------
             j = FluidSynthReverbLevel;
             pData->param.data[j].type   = PARAMETER_INPUT;
-            pData->param.data[j].hints  = PARAMETER_IS_ENABLED /*| PARAMETER_IS_AUTOMABLE*/;
+            pData->param.data[j].hints  = PARAMETER_IS_ENABLED /*| PARAMETER_IS_AUTOMATABLE*/;
             pData->param.data[j].index  = j;
             pData->param.data[j].rindex = j;
             pData->param.data[j].mappedControlIndex = MIDI_CONTROL_REVERB_SEND_LEVEL;
@@ -820,7 +820,7 @@ public:
             // ----------------------
             j = FluidSynthReverbWidth;
             pData->param.data[j].type   = PARAMETER_INPUT;
-            pData->param.data[j].hints  = PARAMETER_IS_ENABLED /*| PARAMETER_IS_AUTOMABLE*/;
+            pData->param.data[j].hints  = PARAMETER_IS_ENABLED /*| PARAMETER_IS_AUTOMATABLE*/;
             pData->param.data[j].index  = j;
             pData->param.data[j].rindex = j;
             pData->param.ranges[j].min = 0.0f;
@@ -941,7 +941,7 @@ public:
             // ----------------------
             j = FluidSynthVoiceCount;
             pData->param.data[j].type   = PARAMETER_OUTPUT;
-            pData->param.data[j].hints  = PARAMETER_IS_ENABLED | PARAMETER_IS_AUTOMABLE | PARAMETER_IS_INTEGER;
+            pData->param.data[j].hints  = PARAMETER_IS_ENABLED | PARAMETER_IS_AUTOMATABLE | PARAMETER_IS_INTEGER;
             pData->param.data[j].index  = j;
             pData->param.data[j].rindex = j;
             pData->param.ranges[j].min = 0.0f;
@@ -1295,16 +1295,16 @@ public:
                                 continue;
                             if (pData->param.data[k].hints != PARAMETER_INPUT)
                                 continue;
-                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMABLE) == 0)
+                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMATABLE) == 0)
                                 continue;
 
                             value = pData->param.getFinalUnnormalizedValue(k, ctrlEvent.normalizedValue);
-                            setParameterValueRT(k, value, true);
+                            setParameterValueRT(k, value, event.time, true);
                         }
 
                         if ((pData->options & PLUGIN_OPTION_SEND_CONTROL_CHANGES) != 0 && ctrlEvent.param < MAX_MIDI_VALUE)
                         {
-                            fluid_synth_cc(fSynth, event.channel, ctrlEvent.param, int(ctrlEvent.normalizedValue*127.0f));
+                            fluid_synth_cc(fSynth, event.channel, ctrlEvent.param, int(ctrlEvent.normalizedValue*127.0f + 0.5f));
                         }
                         break;
                     }
@@ -1541,7 +1541,7 @@ public:
             const bool doVolume  = (pData->hints & PLUGIN_CAN_VOLUME) != 0 && carla_isNotEqual(pData->postProc.volume, 1.0f);
             const bool doBalance = (pData->hints & PLUGIN_CAN_BALANCE) != 0 && ! (carla_isEqual(pData->postProc.balanceLeft, -1.0f) && carla_isEqual(pData->postProc.balanceRight, 1.0f));
 
-            float oldBufLeft[doBalance ? frames : 1];
+            float* const oldBufLeft = pData->postProc.extraBuffer;
 
             for (uint32_t i=0; i < pData->audioOut.count; ++i)
             {
@@ -1604,15 +1604,17 @@ public:
 
     void bufferSizeChanged(const uint32_t newBufferSize) override
     {
-        if (! kUse16Outs)
-            return;
-
-        for (uint32_t i=0; i < pData->audioOut.count; ++i)
+        if (kUse16Outs)
         {
-            if (fAudio16Buffers[i] != nullptr)
-                delete[] fAudio16Buffers[i];
-            fAudio16Buffers[i] = new float[newBufferSize];
+            for (uint32_t i=0; i < pData->audioOut.count; ++i)
+            {
+                if (fAudio16Buffers[i] != nullptr)
+                    delete[] fAudio16Buffers[i];
+                fAudio16Buffers[i] = new float[newBufferSize];
+            }
         }
+
+        CarlaPlugin::bufferSizeChanged(newBufferSize);
     }
 
     void sampleRateChanged(const double newSampleRate) override

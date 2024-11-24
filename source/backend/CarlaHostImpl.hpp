@@ -1,6 +1,6 @@
 /*
  * Carla Plugin Host
- * Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2022 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -22,13 +22,14 @@
 #include "CarlaUtils.h"
 #include "CarlaEngine.hpp"
 
-#ifdef BUILD_BRIDGE
-# include "CarlaString.hpp"
-#else
+#if !(defined(BUILD_BRIDGE) || defined(CARLA_OS_WASM))
+# define CARLA_CAN_USE_LOG_THREAD
 # include "CarlaLogThread.hpp"
+#else
+# include "CarlaString.hpp"
 #endif
 
-namespace CB = CarlaBackend;
+namespace CB = CARLA_BACKEND_NAMESPACE;
 using CB::EngineOptions;
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -58,7 +59,7 @@ struct CarlaHostStandalone : CarlaHostHandleImpl {
     void*              fileCallbackPtr;
 
     EngineOptions  engineOptions;
-#ifndef BUILD_BRIDGE
+#ifdef CARLA_CAN_USE_LOG_THREAD
     CarlaLogThread logThread;
     bool           logThreadEnabled;
 #endif
@@ -72,7 +73,7 @@ struct CarlaHostStandalone : CarlaHostHandleImpl {
           fileCallback(nullptr),
           fileCallbackPtr(nullptr),
           engineOptions(),
-#ifndef BUILD_BRIDGE
+#ifdef CARLA_CAN_USE_LOG_THREAD
           logThread(),
           logThreadEnabled(false),
 #endif
@@ -87,7 +88,7 @@ struct CarlaHostStandalone : CarlaHostHandleImpl {
     }
 
     CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_STRUCT(CarlaHostStandalone)
+    CARLA_DECLARE_NON_COPYABLE(CarlaHostStandalone)
 };
 
 // --------------------------------------------------------------------------------------------------------------------

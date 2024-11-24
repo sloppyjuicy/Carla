@@ -12,7 +12,7 @@ include ../Makefile.mk
 
 BUILD_CXX_FLAGS += $(RTAUDIO_FLAGS) -I$(CWD) -Iinclude
 
-ifeq ($(WIN32),true)
+ifeq ($(WINDOWS),true)
 BUILD_CXX_FLAGS += -Wno-unused-function -Wno-unused-but-set-variable
 endif
 
@@ -37,15 +37,15 @@ debug:
 $(MODULEDIR)/$(MODULENAME).a: $(OBJS)
 	-@mkdir -p $(MODULEDIR)
 	@echo "Creating $(MODULENAME).a"
-	@rm -f $@
-	@$(AR) crs $@ $^
+	$(SILENT)rm -f $@
+	$(SILENT)$(AR) crs $@ $^
 
 # ---------------------------------------------------------------------------------------------------------------------
 
 $(OBJDIR)/%.cpp.o: %.cpp
 	-@mkdir -p $(OBJDIR)
 	@echo "Compiling $<"
-	@$(CXX) $< $(BUILD_CXX_FLAGS) -c -o $@
+	$(SILENT)$(CXX) $< $(BUILD_CXX_FLAGS) -c -o $@
 
 -include $(OBJS:%.o=%.d)
 

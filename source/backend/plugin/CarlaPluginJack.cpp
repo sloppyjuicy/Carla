@@ -1,24 +1,10 @@
-/*
- * Carla Plugin JACK
- * Copyright (C) 2016-2020 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "CarlaPluginInternal.hpp"
 #include "CarlaEngine.hpp"
 
-#ifdef CARLA_OS_LINUX
+#if defined(CARLA_OS_LINUX) || defined(CARLA_OS_MAC)
 
 #include "CarlaLibJackHints.h"
 #include "CarlaBackendUtils.hpp"
@@ -52,7 +38,6 @@ using water::ChildProcess;
 using water::File;
 using water::String;
 using water::StringArray;
-using water::Time;
 
 CARLA_BACKEND_START_NAMESPACE
 
@@ -142,14 +127,20 @@ public:
     {
         const EngineOptions& options(kEngine->getOptions());
         CarlaString binaryDir(options.binaryDir);
-#ifdef HAVE_LIBLO
+       #ifdef HAVE_LIBLO
         const int sessionManager = fSetupLabel[4U] - '0';
-#endif
+       #endif
 
         CarlaString ret;
+       #ifdef CARLA_OS_MAC
+        ret += "export DYLD_LIBRARY_PATH=" + binaryDir + "/jack\n";
+        ret += "export DYLD_INSERT_LIBRARIES=" + binaryDir + "/libcarla_interposer-jack-x11.dylib\n";
+        ret += "export DYLD_FORCE_FLAT_NAMESPACE=1\n";
+       #else
         ret += "export LD_LIBRARY_PATH=" + binaryDir + "/jack\n";
         ret += "export LD_PRELOAD=" + binaryDir + "/libcarla_interposer-jack-x11.so\n";
-#ifdef HAVE_LIBLO
+       #endif
+       #ifdef HAVE_LIBLO
         if (sessionManager == LIBJACK_SESSION_MANAGER_NSM)
         {
             for (int i=50; fOscServer == nullptr && --i>=0;)
@@ -159,7 +150,7 @@ public:
             ret += lo_server_get_url(fOscServer);
             ret += "\n";
         }
-#endif
+       #endif
 
         if (kPlugin->getHints() & PLUGIN_HAS_CUSTOM_UI)
             ret += "export CARLA_FRONTEND_WIN_ID=" + CarlaString(options.frontendWinId) + "\n";
@@ -362,15 +353,25 @@ protected:
             winIdStr[STR_MAX] = '\0';
 
             const CarlaString libjackdir(CarlaString(options.binaryDir) + "/jack");
+           #ifdef CARLA_OS_MAC
+            const CarlaString ldpreload(CarlaString(options.binaryDir) + "/libcarla_interposer-jack-x11.dylib");
+           #else
             const CarlaString ldpreload(CarlaString(options.binaryDir) + "/libcarla_interposer-jack-x11.so");
+           #endif
 
             const ScopedEngineEnvironmentLocker _seel(kEngine);
 
+           #ifdef CARLA_OS_MAC
+            const CarlaScopedEnvVar sev2("DYLD_LIBRARY_PATH", libjackdir.buffer());
+            const CarlaScopedEnvVar sev1("DYLD_INSERT_LIBRARIES", ldpreload.isNotEmpty() ? ldpreload.buffer() : nullptr);
+            const CarlaScopedEnvVar sev0("DYLD_FORCE_FLAT_NAMESPACE", "1");
+           #else
             const CarlaScopedEnvVar sev2("LD_LIBRARY_PATH", libjackdir.buffer());
             const CarlaScopedEnvVar sev1("LD_PRELOAD", ldpreload.isNotEmpty() ? ldpreload.buffer() : nullptr);
-#ifdef HAVE_LIBLO
+           #endif
+           #ifdef HAVE_LIBLO
             const CarlaScopedEnvVar sev3("NSM_URL", lo_server_get_url(fOscServer));
-#endif
+           #endif
 
             if (kPlugin->getHints() & PLUGIN_HAS_CUSTOM_UI)
                 carla_setenv("CARLA_FRONTEND_WIN_ID", winIdStr);
@@ -484,7 +485,7 @@ private:
             CARLA_SAFE_ASSERT_RETURN(uniqueCodeID != nullptr && uniqueCodeID[0] != '\0', false);
             CARLA_SAFE_ASSERT_RETURN(appName.isNotEmpty(), false);
 
-            String child(pluginName);
+            CarlaString child(pluginName);
             child += ".";
             child += uniqueCodeID;
 
@@ -497,7 +498,7 @@ private:
             return true;
         }
 
-        CARLA_DECLARE_NON_COPY_STRUCT(ProjectData)
+        CARLA_DECLARE_NON_COPYABLE(ProjectData)
     } fProject;
 #endif
 
@@ -998,7 +999,7 @@ public:
         } CARLA_SAFE_EXCEPTION("deactivate - waitForClient");
     }
 
-    void process(const float* const* const audioIn, float** const audioOut, 
+    void process(const float* const* const audioIn, float** const audioOut,
                  const float* const*, float**, const uint32_t frames) override
     {
         // --------------------------------------------------------------------------------------------------------
@@ -1134,7 +1135,7 @@ public:
                             fShmRtClientControl.writeByte(3); // size
                             fShmRtClientControl.writeByte(uint8_t(MIDI_STATUS_CONTROL_CHANGE | (event.channel & MIDI_CHANNEL_BIT)));
                             fShmRtClientControl.writeByte(uint8_t(ctrlEvent.param));
-                            fShmRtClientControl.writeByte(uint8_t(ctrlEvent.normalizedValue*127.0f));
+                            fShmRtClientControl.writeByte(uint8_t(ctrlEvent.normalizedValue*127.0f + 0.5f));
                         }
                         break;
 
@@ -1386,7 +1387,8 @@ public:
             const bool isMono    = (pData->audioIn.count == 1);
 
             bool isPair;
-            float bufValue, oldBufLeft[doBalance ? frames : 1];
+            float bufValue;
+            float* const oldBufLeft = pData->postProc.extraBuffer;
 
             for (uint32_t i=0; i < pData->audioOut.count; ++i)
             {
@@ -1433,7 +1435,7 @@ public:
                     }
                 }
 
-                // Volume (and buffer copy)
+                // Volume
                 if (doVolume)
                 {
                     for (uint32_t k=0; k < frames; ++k)
@@ -1533,6 +1535,8 @@ public:
             case kPluginBridgeNonRtServerMidiProgramData:
             case kPluginBridgeNonRtServerSetCustomData:
             case kPluginBridgeNonRtServerVersion:
+            case kPluginBridgeNonRtServerRespEmbedUI:
+            case kPluginBridgeNonRtServerResizeEmbedUI:
                 break;
 
             case kPluginBridgeNonRtServerSetChunkDataFile:
@@ -1816,7 +1820,7 @@ private:
               setupLabel(),
               chunk() {}
 
-        CARLA_DECLARE_NON_COPY_STRUCT(Info)
+        CARLA_DECLARE_NON_COPYABLE(Info)
     } fInfo;
 
     void handleProcessStopped() noexcept
@@ -1868,7 +1872,7 @@ private:
         char code[6];
         code[5] = '\0';
 
-        String child;
+        CarlaString child;
 
         for (;;)
         {
@@ -2046,7 +2050,7 @@ CarlaPluginPtr CarlaPlugin::newJackApp(const Initializer& init)
     carla_debug("CarlaPlugin::newJackApp({%p, \"%s\", \"%s\", \"%s\"})",
                 init.engine, init.filename, init.name, init.label);
 
-#ifdef CARLA_OS_LINUX
+#if defined(CARLA_OS_LINUX) || defined(CARLA_OS_MAC)
     std::shared_ptr<CarlaPluginJack> plugin(new CarlaPluginJack(init.engine, init.id));
 
     if (! plugin->init(plugin, init.filename, init.name, init.label, init.options))

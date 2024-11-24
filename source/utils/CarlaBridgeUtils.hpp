@@ -1,6 +1,6 @@
 /*
  * Carla Bridge utils
- * Copyright (C) 2013-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2013-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -59,7 +59,7 @@ const char* PluginBridgeRtClientOpcode2str(const PluginBridgeRtClientOpcode opco
     }
 
     carla_stderr("CarlaBackend::PluginBridgeRtClientOpcode2str(%i) - invalid opcode", opcode);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -127,10 +127,14 @@ const char* PluginBridgeNonRtClientOpcode2str(const PluginBridgeNonRtClientOpcod
         return "kPluginBridgeNonRtClientSetOptions";
     case kPluginBridgeNonRtClientSetWindowTitle:
         return "kPluginBridgeNonRtClientSetWindowTitle";
+    case kPluginBridgeNonRtClientEmbedUI:
+        return "kPluginBridgeNonRtClientEmbedUI";
+    case kPluginBridgeNonRtClientReload:
+        return "kPluginBridgeNonRtClientReload";
     }
 
     carla_stderr("CarlaBackend::PluginBridgeNonRtClientOpcode2str(%i) - invalid opcode", opcode);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -200,16 +204,20 @@ const char* PluginBridgeNonRtServerOpcode2str(const PluginBridgeNonRtServerOpcod
         return "kPluginBridgeNonRtServerError";
     case kPluginBridgeNonRtServerVersion:
         return "kPluginBridgeNonRtServerVersion";
+    case kPluginBridgeNonRtServerRespEmbedUI:
+        return "kPluginBridgeNonRtServerRespEmbedUI";
+    case kPluginBridgeNonRtServerResizeEmbedUI:
+        return "kPluginBridgeNonRtServerResizeEmbedUI";
     }
 
     carla_stderr("CarlaBackend::PluginBridgeNonRtServerOpcode2str%i) - invalid opcode", opcode);
-    return nullptr;
+    return "";
 }
 
 // -------------------------------------------------------------------------------------------------------------------
 
-static const std::size_t kBridgeRtClientDataMidiOutSize = 511*4;
-static const std::size_t kBridgeBaseMidiOutHeaderSize   = 6U /* time, port and size */;
+static constexpr const std::size_t kBridgeRtClientDataMidiOutSize = 511*4;
+static constexpr const std::size_t kBridgeBaseMidiOutHeaderSize   = 6U /* time, port and size */;
 
 // Server => Client RT
 struct BridgeRtClientData {
@@ -232,7 +240,7 @@ struct BridgeNonRtServerData {
 
 // -------------------------------------------------------------------------------------------------------------------
 
-struct BridgeAudioPool {
+struct CARLA_API BridgeAudioPool {
     float* data;
     std::size_t dataSize;
     CarlaString filename;
@@ -250,12 +258,12 @@ struct BridgeAudioPool {
 
     const char* getFilenameSuffix() const noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(BridgeAudioPool)
+    CARLA_DECLARE_NON_COPYABLE(BridgeAudioPool)
 };
 
 // -------------------------------------------------------------------------------------------------------------------
 
-struct BridgeRtClientControl : public CarlaRingBufferControl<SmallStackBuffer> {
+struct CARLA_API BridgeRtClientControl : public CarlaRingBufferControl<SmallStackBuffer> {
     BridgeRtClientData* data;
     CarlaString filename;
     bool needsSemDestroy; // client only
@@ -287,15 +295,15 @@ struct BridgeRtClientControl : public CarlaRingBufferControl<SmallStackBuffer> {
         WaitHelper(BridgeRtClientControl& c) noexcept;
         ~WaitHelper() noexcept;
 
-        CARLA_DECLARE_NON_COPY_STRUCT(WaitHelper)
+        CARLA_DECLARE_NON_COPYABLE(WaitHelper)
     };
 
-    CARLA_DECLARE_NON_COPY_STRUCT(BridgeRtClientControl)
+    CARLA_DECLARE_NON_COPYABLE(BridgeRtClientControl)
 };
 
 // -------------------------------------------------------------------------------------------------------------------
 
-struct BridgeNonRtClientControl : public CarlaRingBufferControl<BigStackBuffer> {
+struct CARLA_API BridgeNonRtClientControl : public CarlaRingBufferControl<BigStackBuffer> {
     BridgeNonRtClientData* data;
     CarlaString filename;
     CarlaMutex mutex;
@@ -319,12 +327,12 @@ struct BridgeNonRtClientControl : public CarlaRingBufferControl<BigStackBuffer> 
     // bridge, client
     PluginBridgeNonRtClientOpcode readOpcode() noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(BridgeNonRtClientControl)
+    CARLA_DECLARE_NON_COPYABLE(BridgeNonRtClientControl)
 };
 
 // -------------------------------------------------------------------------------------------------------------------
 
-struct BridgeNonRtServerControl : public CarlaRingBufferControl<HugeStackBuffer> {
+struct CARLA_API BridgeNonRtServerControl : public CarlaRingBufferControl<HugeStackBuffer> {
     BridgeNonRtServerData* data;
     CarlaString filename;
     CarlaMutex mutex;
@@ -348,7 +356,7 @@ struct BridgeNonRtServerControl : public CarlaRingBufferControl<HugeStackBuffer>
     void waitIfDataIsReachingLimit() noexcept;
     bool writeOpcode(const PluginBridgeNonRtServerOpcode opcode) noexcept;
 
-    CARLA_DECLARE_NON_COPY_STRUCT(BridgeNonRtServerControl)
+    CARLA_DECLARE_NON_COPYABLE(BridgeNonRtServerControl)
 };
 
 // -------------------------------------------------------------------------------------------------------------------

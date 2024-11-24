@@ -1,5 +1,6 @@
 /**
    Copyright (C) 2011-2013 Robin Gareus <robin@gareus.org>
+   Copyright (C) 2014-2023 Filipe Coelho <falktx@falktx.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU Lesser Public License as published by
@@ -20,8 +21,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <unistd.h>
 #include <math.h>
 
 #include "ad_plugin.h"
@@ -34,6 +33,10 @@
 /* internal abstraction */
 
 #define DR_MP3_MAX_SEEK_POINTS 500
+
+#ifdef _MSC_VER
+#define strcasecmp stricmp
+#endif
 
 typedef struct {
 	drmp3 mp3;
@@ -49,7 +52,7 @@ static int ad_info_dr_mp3(void *sf, struct adinfo *nfo) {
 		nfo->sample_rate = priv->mp3.sampleRate;
 		nfo->length = nfo->sample_rate ? (nfo->frames * 1000) / nfo->sample_rate : 0;
 		nfo->bit_depth = 16;
-		nfo->bit_rate = priv->mp3.frameInfo.bitrate_kbps;
+		nfo->bit_rate = priv->mp3.frameInfo.bitrate_kbps * 1000;
 		nfo->meta_data = NULL;
 		nfo->can_seek = 1;
 	}
@@ -100,7 +103,7 @@ static ssize_t ad_read_dr_mp3(void *sf, float* d, size_t len)
 static int ad_get_bitrate_dr_mp3(void *sf) {
 	drmp3_audio_decoder *priv = (drmp3_audio_decoder*) sf;
 	if (!priv) return -1;
-	return priv->mp3.frameInfo.bitrate_kbps;
+	return priv->mp3.frameInfo.bitrate_kbps * 1000;
 }
 
 static int ad_eval_dr_mp3(const char *f)

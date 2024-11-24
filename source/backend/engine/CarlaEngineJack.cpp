@@ -1,19 +1,5 @@
-﻿/*
- * Carla Plugin Host
- * Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+﻿// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "CarlaEngineClient.hpp"
 #include "CarlaEngineInit.hpp"
@@ -28,23 +14,6 @@
 #include "CarlaStringList.hpp"
 
 #include "jackey.h"
-
-#ifdef USING_JUCE
-# if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6))
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wconversion"
-#  pragma GCC diagnostic ignored "-Weffc++"
-#  pragma GCC diagnostic ignored "-Wsign-conversion"
-#  pragma GCC diagnostic ignored "-Wundef"
-# endif
-
-# include "AppConfig.h"
-# include "juce_events/juce_events.h"
-
-# if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6))
-#  pragma GCC diagnostic pop
-# endif
-#endif
 
 #ifdef __SSE2_MATH__
 # include <xmmintrin.h>
@@ -135,8 +104,8 @@ struct CarlaJackPortHints {
 
 #ifndef BUILD_BRIDGE
 static const GroupNameToId  kGroupNameToIdFallback   = { 0, { '\0' } };
-static /* */ PortNameToId   kPortNameToIdFallbackNC  = { 0, 0, { '\0' }, { '\0' } };
-static const PortNameToId   kPortNameToIdFallback    = { 0, 0, { '\0' }, { '\0' } };
+static /* */ PortNameToId   kPortNameToIdFallbackNC  = { 0, 0, { '\0' }, { '\0' }, { '\0' } };
+static const PortNameToId   kPortNameToIdFallback    = { 0, 0, { '\0' }, { '\0' }, { '\0' } };
 static const ConnectionToId kConnectionToIdFallback  = { 0, 0, 0, 0, 0 };
 #endif
 static EngineEvent kFallbackJackEngineEvent = {
@@ -784,7 +753,7 @@ private:
     EngineEvent* fBuffer;
     EngineEvent* fBufferToDeleteLater;
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaEngineJackCVSourcePorts)
+    CARLA_DECLARE_NON_COPYABLE(CarlaEngineJackCVSourcePorts)
 };
 #endif
 
@@ -1382,8 +1351,6 @@ public:
           fLastPatchbaySetGroupPos(),
           fPostPonedEvents(),
           fPostPonedEventsMutex(),
-          fPostPonedUUIDs(),
-          fPostPonedUUIDsMutex(),
           fIsInternalClient(false)
 #endif
     {
@@ -1445,8 +1412,13 @@ public:
     bool init(const char* const clientName) override
     {
         CARLA_SAFE_ASSERT_RETURN(fClient != nullptr || (clientName != nullptr && clientName[0] != '\0'), false);
-        CARLA_SAFE_ASSERT_RETURN(jackbridge_is_ok(), false);
         carla_debug("CarlaEngineJack::init(\"%s\")", clientName);
+
+        if (!jackbridge_is_ok())
+        {
+            setLastError("JACK is not available or installed");
+            return false;
+        }
 
         fFreewheel = false;
         fExternalPatchbayHost = true;
@@ -1661,7 +1633,9 @@ public:
                 }
             }
 
-            startThread();
+            if (fIsInternalClient)
+                startThread();
+
             callback(true, true,
                      ENGINE_CALLBACK_ENGINE_STARTED, 0,
                      opts.processMode,
@@ -1707,7 +1681,8 @@ public:
         CarlaEngine::close();
         return true;
 #else
-        stopThread(-1);
+        if (fIsInternalClient)
+            stopThread(-1);
 
         // deactivate client ASAP
         if (fClient != nullptr)
@@ -1728,7 +1703,6 @@ public:
         fUsedPorts.clear();
         fUsedConnections.clear();
         fPostPonedEvents.clear();
-        fPostPonedUUIDs.clear();
 
         // clear rack/patchbay stuff
         if (pData->options.processMode == ENGINE_PROCESS_MODE_CONTINUOUS_RACK ||
@@ -1740,6 +1714,15 @@ public:
 
         return true;
 #endif
+    }
+
+    bool hasIdleOnMainThread() const noexcept override
+    {
+       #ifndef BUILD_BRIDGE
+        return !fIsInternalClient;
+       #else
+        return true;
+       #endif
     }
 
     bool isRunning() const noexcept override
@@ -1793,82 +1776,56 @@ public:
 
     void idle() noexcept override
     {
-        water::Array<jack_uuid_t> uuids;
+        LinkedList<PostPonedJackEvent> events;
+        const PostPonedJackEvent nullEvent = {};
 
         {
-            const CarlaMutexLocker cml(fPostPonedUUIDsMutex);
-            fPostPonedUUIDs.swapWith(uuids);
+            const CarlaMutexLocker cml(fPostPonedEventsMutex);
+
+            if (fPostPonedEvents.count() > 0)
+                fPostPonedEvents.moveTo(events);
         }
 
+        for (LinkedList<PostPonedJackEvent>::Itenerator it = events.begin2(); it.valid(); it.next())
         {
-            const CarlaRecursiveMutexLocker crml(fThreadSafeMetadataMutex);
+            const PostPonedJackEvent& ev(it.getValue(nullEvent));
+            CARLA_SAFE_ASSERT_CONTINUE(ev.type != PostPonedJackEvent::kTypeNull);
 
-            for (int i=0; i<uuids.size(); ++i)
+            switch (ev.type)
             {
-                jack_uuid_t uuid = uuids.getUnchecked(i);
-
-                char uuidstr[JACK_UUID_STRING_SIZE];
-                carla_zeroStruct(uuidstr);
-                jackbridge_uuid_unparse(uuid, uuidstr);
-
-                if (char* const clientName = jackbridge_get_client_name_by_uuid(fClient, uuidstr))
-                {
-                    CARLA_SAFE_ASSERT_RETURN(clientName != nullptr && clientName[0] != '\0',);
-
-                    uint groupId;
-
-                    {
-                        const CarlaMutexLocker cml(fUsedGroups.mutex);
-                        groupId = fUsedGroups.getGroupId(clientName);
-                    }
-
-                    jackbridge_free(clientName);
-                    CARLA_SAFE_ASSERT_RETURN(groupId != 0,);
-
-                    char* value = nullptr;
-                    char* type  = nullptr;
-
-                    if (jackbridge_get_property(uuid, URI_POSITION, &value, &type)
-                        && value != nullptr
-                        && type != nullptr
-                        && std::strcmp(type, URI_TYPE_STRING) == 0)
-                    {
-                        if (char* sep1 = std::strstr(value, ":"))
-                        {
-                            LastPatchbaySetGroupPos pos;
-                            *sep1++ = '\0';
-                            pos.x1 = std::atoi(value);
-
-                            if (char* sep2 = std::strstr(sep1, ":"))
-                            {
-                                *sep2++ = '\0';
-                                pos.y1 = std::atoi(sep1);
-
-                                if (char* sep3 = std::strstr(sep2, ":"))
-                                {
-                                    *sep3++ = '\0';
-                                    pos.x2 = std::atoi(sep2);
-                                    pos.y2 = std::atoi(sep3);
-                                }
-
-                                if (fLastPatchbaySetGroupPos != pos)
-                                {
-                                    fLastPatchbaySetGroupPos.clear();
-
-                                    callback(fExternalPatchbayHost, fExternalPatchbayOsc,
-                                            ENGINE_CALLBACK_PATCHBAY_CLIENT_POSITION_CHANGED,
-                                            groupId, pos.x1, pos.y1, pos.x2, static_cast<float>(pos.y2),
-                                            nullptr);
-                                }
-                            }
-                        }
-
-                        jackbridge_free(value);
-                        jackbridge_free(type);
-                    }
-                }
+            case PostPonedJackEvent::kTypeNull:
+                break;
+            case PostPonedJackEvent::kTypeClientUnregister:
+                handleJackClientUnregistrationCallback(ev.clientUnregister.name);
+                break;
+            case PostPonedJackEvent::kTypePortRegister:
+                handleJackPortRegistrationCallback(ev.portRegister.fullName,
+                                                   ev.portRegister.shortName,
+                                                   ev.portRegister.hints);
+                break;
+            case PostPonedJackEvent::kTypePortUnregister:
+                handleJackPortUnregistrationCallback(ev.portUnregister.fullName);
+                break;
+            case PostPonedJackEvent::kTypePortConnect:
+                handleJackPortConnectCallback(ev.portConnect.portNameA,
+                                              ev.portConnect.portNameB);
+                break;
+            case PostPonedJackEvent::kTypePortDisconnect:
+                handleJackPortDisconnectCallback(ev.portDisconnect.portNameA,
+                                                 ev.portDisconnect.portNameB);
+                break;
+            case PostPonedJackEvent::kTypePortRename:
+                handleJackPortRenameCallback(ev.portRename.oldFullName,
+                                             ev.portRename.newFullName,
+                                             ev.portRename.newShortName);
+                break;
+            case PostPonedJackEvent::kTypeClientPositionChange:
+                handleJackClientPositionChangeCallback(ev.clientPositionChange.uuid);
+                break;
             }
         }
+
+        events.clear();
 
         CarlaEngine::idle();
     }
@@ -2183,7 +2140,7 @@ public:
             return false;
         }
 
-        const ScopedThreadStopper sts(this);
+        const ScopedRunnerStopper srs(this);
 
         // rename on client client mode, just rename the ports
         if (pData->options.processMode == ENGINE_PROCESS_MODE_SINGLE_CLIENT)
@@ -2239,7 +2196,8 @@ public:
                    Anyway, this means we have to remove all our port-related data before the new client ports are created.
                    (we also stop the separate jack-events thread to avoid any race conditions while modying our port data) */
 
-                stopThread(-1);
+                if (fIsInternalClient)
+                    stopThread(-1);
 
                 LinkedList<PortNameToId> ports;
                 LinkedList<ConnectionToId> conns;
@@ -2305,7 +2263,8 @@ public:
                 ports.clear();
                 conns.clear();
 
-                startThread();
+                if (fIsInternalClient)
+                    startThread();
             }
             else
             {
@@ -3206,8 +3165,67 @@ protected:
         if (! fExternalPatchbayHost) return;
 #endif
 
-        const CarlaMutexLocker cml(fPostPonedUUIDsMutex);
-        fPostPonedUUIDs.addIfNotAlreadyThere(uuid);
+        const CarlaRecursiveMutexLocker crml(fThreadSafeMetadataMutex);
+
+        char uuidstr[JACK_UUID_STRING_SIZE] = {};
+        jackbridge_uuid_unparse(uuid, uuidstr);
+
+        if (char* const clientName = jackbridge_get_client_name_by_uuid(fClient, uuidstr))
+        {
+            CARLA_SAFE_ASSERT_RETURN(clientName != nullptr && clientName[0] != '\0',);
+
+            uint groupId;
+
+            {
+                const CarlaMutexLocker cml(fUsedGroups.mutex);
+                groupId = fUsedGroups.getGroupId(clientName);
+            }
+
+            jackbridge_free(clientName);
+            CARLA_SAFE_ASSERT_RETURN(groupId != 0,);
+
+            char* value = nullptr;
+            char* type  = nullptr;
+
+            if (jackbridge_get_property(uuid, URI_POSITION, &value, &type)
+                && value != nullptr
+                && type != nullptr
+                && std::strcmp(type, URI_TYPE_STRING) == 0)
+            {
+                if (char* sep1 = std::strstr(value, ":"))
+                {
+                    LastPatchbaySetGroupPos pos;
+                    *sep1++ = '\0';
+                    pos.x1 = std::atoi(value);
+
+                    if (char* sep2 = std::strstr(sep1, ":"))
+                    {
+                        *sep2++ = '\0';
+                        pos.y1 = std::atoi(sep1);
+
+                        if (char* sep3 = std::strstr(sep2, ":"))
+                        {
+                            *sep3++ = '\0';
+                            pos.x2 = std::atoi(sep2);
+                            pos.y2 = std::atoi(sep3);
+                        }
+
+                        if (fLastPatchbaySetGroupPos != pos)
+                        {
+                            fLastPatchbaySetGroupPos.clear();
+
+                            callback(fExternalPatchbayHost, fExternalPatchbayOsc,
+                                        ENGINE_CALLBACK_PATCHBAY_CLIENT_POSITION_CHANGED,
+                                        groupId, pos.x1, pos.y1, pos.x2, static_cast<float>(pos.y2),
+                                        nullptr);
+                        }
+                    }
+                }
+
+                jackbridge_free(value);
+                jackbridge_free(type);
+            }
+        }
     }
 
     void handleJackPortRegistrationCallback(const char* const portName,
@@ -3496,7 +3514,8 @@ protected:
     void handleJackShutdownCallback()
     {
 #ifndef BUILD_BRIDGE
-        stopThread(-1);
+        if (fIsInternalClient)
+            stopThread(-1);
 #endif
 
         {
@@ -3516,7 +3535,7 @@ protected:
             }
         }
 
-        pData->thread.stopThread(500);
+        pData->runner.stopRunner();
         fClient = nullptr;
 
 #ifdef BUILD_BRIDGE
@@ -3740,13 +3759,11 @@ private:
             const CarlaMutexLocker cml2(fUsedPorts.mutex);
             const CarlaMutexLocker cml3(fUsedConnections.mutex);
             const CarlaMutexLocker cml4(fPostPonedEventsMutex);
-            const CarlaMutexLocker cml5(fPostPonedUUIDsMutex);
 
             fUsedGroups.clear();
             fUsedPorts.clear();
             fUsedConnections.clear();
             fPostPonedEvents.clear();
-            fPostPonedUUIDs.clear();
 
             // add our client first
             {
@@ -4131,7 +4148,6 @@ private:
     struct PostPonedJackEvent {
         enum Type {
             kTypeNull = 0,
-            kTypeClientRegister,
             kTypeClientUnregister,
             kTypeClientPositionChange,
             kTypePortRegister,
@@ -4180,12 +4196,9 @@ private:
     LinkedList<PostPonedJackEvent> fPostPonedEvents;
     CarlaMutex fPostPonedEventsMutex;
 
-    water::Array<jack_uuid_t> fPostPonedUUIDs;
-    CarlaMutex fPostPonedUUIDsMutex;
-
     bool fIsInternalClient;
 
-    void postPoneJackCallback(PostPonedJackEvent& ev)
+    void postponeJackCallback(PostPonedJackEvent& ev)
     {
         const CarlaMutexLocker cml(fPostPonedEventsMutex);
         fPostPonedEvents.append(ev);
@@ -4193,135 +4206,16 @@ private:
 
     void run() override
     {
-        LinkedList<PostPonedJackEvent> events;
-
-        PostPonedJackEvent nullEvent;
-        carla_zeroStruct(nullEvent);
-
-        CarlaStringList clientsToIgnore, portsToIgnore;
-
         for (; ! shouldThreadExit();)
         {
             if (fIsInternalClient)
                 idle();
 
-            {
-                const CarlaMutexLocker cml(fPostPonedEventsMutex);
-
-                if (fPostPonedEvents.count() > 0)
-                    fPostPonedEvents.moveTo(events);
-            }
-
             if (fClient == nullptr)
                 break;
 
-            if (events.count() == 0)
-            {
-                carla_msleep(fIsInternalClient ? 50 : 200);
-                continue;
-            }
-
-            // 1st iteration, fill in what things we ought to ignore and do unregistration
-            clientsToIgnore.clear();
-            portsToIgnore.clear();
-
-            for (LinkedList<PostPonedJackEvent>::Itenerator it = events.begin2(); it.valid(); it.next())
-            {
-                const PostPonedJackEvent& ev(it.getValue(nullEvent));
-                CARLA_SAFE_ASSERT_CONTINUE(ev.type != PostPonedJackEvent::kTypeNull);
-
-                switch (ev.type)
-                {
-                case PostPonedJackEvent::kTypeClientRegister:
-                    clientsToIgnore.removeOne(ev.clientRegister.name);
-                    break;
-                case PostPonedJackEvent::kTypeClientUnregister:
-                    clientsToIgnore.append(ev.clientUnregister.name);
-                    handleJackClientUnregistrationCallback(ev.clientUnregister.name);
-                    break;
-                case PostPonedJackEvent::kTypePortRegister:
-                    portsToIgnore.removeOne(ev.portRegister.fullName);
-                    break;
-                case PostPonedJackEvent::kTypePortUnregister:
-                    portsToIgnore.append(ev.portUnregister.fullName);
-                    handleJackPortUnregistrationCallback(ev.portUnregister.fullName);
-                    break;
-                case PostPonedJackEvent::kTypePortDisconnect:
-                    handleJackPortDisconnectCallback(ev.portDisconnect.portNameA,
-                                                     ev.portDisconnect.portNameB);
-                    break;
-                default:
-                    break;
-                }
-            }
-
-            // 2nd iteration, go through all postponed events while ignoring some
-            for (LinkedList<PostPonedJackEvent>::Itenerator it = events.begin2(); it.valid(); it.next())
-            {
-                const PostPonedJackEvent& ev(it.getValue(nullEvent));
-                CARLA_SAFE_ASSERT_CONTINUE(ev.type != PostPonedJackEvent::kTypeNull);
-
-                switch (ev.type)
-                {
-                case PostPonedJackEvent::kTypeNull:
-                case PostPonedJackEvent::kTypeClientRegister:
-                case PostPonedJackEvent::kTypeClientUnregister:
-                case PostPonedJackEvent::kTypePortUnregister:
-                case PostPonedJackEvent::kTypePortDisconnect:
-                    break;
-
-                case PostPonedJackEvent::kTypeClientPositionChange:
-                {
-                    char uuidstr[JACK_UUID_STRING_SIZE];
-                    carla_zeroStruct(uuidstr);
-                    jackbridge_uuid_unparse(ev.clientPositionChange.uuid, uuidstr);
-
-                    if (clientsToIgnore.count() != 0)
-                    {
-                        const CarlaRecursiveMutexLocker crml(fThreadSafeMetadataMutex);
-
-                        const char* const clientname = jackbridge_get_client_name_by_uuid(fClient, uuidstr);
-                        CARLA_SAFE_ASSERT_CONTINUE(clientname != nullptr && clientname[0] != '\0');
-
-                        if (clientsToIgnore.contains(clientname))
-                            continue;
-                    }
-
-                    handleJackClientPositionChangeCallback(ev.clientPositionChange.uuid);
-                    break;
-                }
-
-                case PostPonedJackEvent::kTypePortRegister:
-                    if (portsToIgnore.contains(ev.portRegister.fullName))
-                        continue;
-                    handleJackPortRegistrationCallback(ev.portRegister.fullName,
-                                                       ev.portRegister.shortName,
-                                                       ev.portRegister.hints);
-                    break;
-
-                case PostPonedJackEvent::kTypePortConnect:
-                    if (portsToIgnore.contains(ev.portConnect.portNameA))
-                        continue;
-                    if (portsToIgnore.contains(ev.portConnect.portNameB))
-                        continue;
-                    handleJackPortConnectCallback(ev.portConnect.portNameA,
-                                                  ev.portConnect.portNameB);
-                    break;
-
-                case PostPonedJackEvent::kTypePortRename:
-                    handleJackPortRenameCallback(ev.portRename.oldFullName,
-                                                 ev.portRename.newFullName,
-                                                 ev.portRename.newShortName);
-                    break;
-                }
-            }
-
-            events.clear();
+            carla_msleep(200);
         }
-
-        events.clear();
-        clientsToIgnore.clear();
-        portsToIgnore.clear();
     }
 #endif //  BUILD_BRIDGE
 
@@ -4382,21 +4276,14 @@ private:
 
     static void JACKBRIDGE_API carla_jack_client_registration_callback(const char* name, int reg, void* arg)
     {
+        if (reg == 0)
+            return;
+
         PostPonedJackEvent ev;
         carla_zeroStruct(ev);
-
-        if (reg != 0)
-        {
-            ev.type = PostPonedJackEvent::kTypeClientRegister;
-            std::strncpy(ev.clientRegister.name, name, STR_MAX);
-        }
-        else
-        {
-            ev.type = PostPonedJackEvent::kTypeClientUnregister;
-            std::strncpy(ev.clientUnregister.name, name, STR_MAX);
-        }
-
-        handlePtr->postPoneJackCallback(ev);
+        ev.type = PostPonedJackEvent::kTypeClientUnregister;
+        std::strncpy(ev.clientUnregister.name, name, STR_MAX);
+        handlePtr->postponeJackCallback(ev);
     }
 
     static void JACKBRIDGE_API carla_jack_port_registration_callback(jack_port_id_t port_id, int reg, void* arg)
@@ -4428,7 +4315,7 @@ private:
             std::strncpy(ev.portUnregister.fullName, fullName, STR_MAX);
         }
 
-        handlePtr->postPoneJackCallback(ev);
+        handlePtr->postponeJackCallback(ev);
     }
 
     static void JACKBRIDGE_API carla_jack_port_connect_callback(jack_port_id_t a, jack_port_id_t b, int connect, void* arg)
@@ -4461,7 +4348,7 @@ private:
             std::strncpy(ev.portDisconnect.portNameB, fullNameB, STR_MAX);
         }
 
-        handlePtr->postPoneJackCallback(ev);
+        handlePtr->postponeJackCallback(ev);
     }
 
     static void JACKBRIDGE_API carla_jack_port_rename_callback(jack_port_id_t port_id, const char* oldName, const char* newName, void* arg)
@@ -4478,7 +4365,7 @@ private:
         std::strncpy(ev.portRename.oldFullName, oldName, STR_MAX);
         std::strncpy(ev.portRename.newFullName, newName, STR_MAX);
         std::strncpy(ev.portRename.newShortName, shortName, STR_MAX);
-        handlePtr->postPoneJackCallback(ev);
+        handlePtr->postponeJackCallback(ev);
     }
 
     static void carla_jack_property_change_callback(jack_uuid_t subject, const char* key, jack_property_change_t change, void* arg)
@@ -4492,7 +4379,7 @@ private:
         carla_zeroStruct(ev);
         ev.type = PostPonedJackEvent::kTypeClientPositionChange;
         ev.clientPositionChange.uuid = subject;
-        handlePtr->postPoneJackCallback(ev);
+        handlePtr->postponeJackCallback(ev);
     }
 
     static int JACKBRIDGE_API carla_jack_xrun_callback(void* arg)
@@ -4603,10 +4490,10 @@ CARLA_BACKEND_END_NAMESPACE
 // -----------------------------------------------------------------------
 // internal jack client
 
-CARLA_EXPORT
+CARLA_PLUGIN_EXPORT
 int jack_initialize(jack_client_t *client, const char *load_init);
 
-CARLA_EXPORT
+CARLA_PLUGIN_EXPORT
 void jack_finish(void *arg);
 
 #ifdef CARLA_OS_UNIX
@@ -4615,7 +4502,7 @@ void jack_finish(void *arg);
 
 // -----------------------------------------------------------------------
 
-CARLA_EXPORT
+CARLA_PLUGIN_EXPORT
 int jack_initialize(jack_client_t* const client, const char* const load_init)
 {
     CARLA_BACKEND_USE_NAMESPACE
@@ -4629,10 +4516,6 @@ int jack_initialize(jack_client_t* const client, const char* const load_init)
         mode = ENGINE_PROCESS_MODE_CONTINUOUS_RACK;
     else
         mode = ENGINE_PROCESS_MODE_MULTIPLE_CLIENTS;
-
-#ifdef USING_JUCE
-    juce::initialiseJuce_GUI();
-#endif
 
     CarlaEngineJack* const engine = new CarlaEngineJack();
 
@@ -4659,13 +4542,11 @@ int jack_initialize(jack_client_t* const client, const char* const load_init)
         return 0;
 
     delete engine;
-#ifdef USING_JUCE
-    juce::shutdownJuce_GUI();
-#endif
+
     return 1;
 }
 
-CARLA_EXPORT
+CARLA_PLUGIN_EXPORT
 void jack_finish(void *arg)
 {
     CARLA_BACKEND_USE_NAMESPACE
@@ -4677,10 +4558,6 @@ void jack_finish(void *arg)
     engine->removeAllPlugins();
     engine->close();
     delete engine;
-
-#ifdef USING_JUCE
-    juce::shutdownJuce_GUI();
-#endif
 }
 
 // -----------------------------------------------------------------------

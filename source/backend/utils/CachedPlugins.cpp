@@ -1,19 +1,5 @@
-/*
- * Carla Plugin Host
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "CarlaUtils.h"
 
@@ -22,15 +8,18 @@
 #include "CarlaBackendUtils.hpp"
 #include "CarlaLv2Utils.hpp"
 
-#if defined(USING_JUCE) && defined(CARLA_OS_MAC)
-# include "AppConfig.h"
-# include "juce_audio_processors/juce_audio_processors.h"
+#ifndef STATIC_PLUGIN_TARGET
+# define HAVE_SFZ
+# include "water/containers/Array.h"
 #endif
 
-#include "water/containers/Array.h"
+#ifdef HAVE_YSFX
+# include "CarlaJsfxUtils.hpp"
+#endif
+
 #include "water/files/File.h"
 
-namespace CB = CarlaBackend;
+namespace CB = CARLA_BACKEND_NAMESPACE;
 
 // -------------------------------------------------------------------------------------------------------------------
 
@@ -44,6 +33,7 @@ static bool isCachedPluginType(const CB::PluginType ptype)
     case CB::PLUGIN_LV2:
     case CB::PLUGIN_AU:
     case CB::PLUGIN_SFZ:
+    case CB::PLUGIN_JSFX:
         return true;
     default:
         return false;
@@ -71,11 +61,12 @@ _CarlaCachedPluginInfo::_CarlaCachedPluginInfo() noexcept
 
 // -------------------------------------------------------------------------------------------------------------------
 
-static water::Array<water::File> gSFZs;
+#ifdef HAVE_SFZ
+static std::vector<water::File> gSFZs;
 
 static void findSFZs(const char* const sfzPaths)
 {
-    gSFZs.clearQuick();
+    gSFZs.clear();
 
     CARLA_SAFE_ASSERT_RETURN(sfzPaths != nullptr,);
 
@@ -86,12 +77,53 @@ static void findSFZs(const char* const sfzPaths)
 
     for (water::String *it = splitPaths.begin(), *end = splitPaths.end(); it != end; ++it)
     {
-        water::Array<water::File> results;
+        std::vector<water::File> results;
 
-        if (water::File(*it).findChildFiles(results, water::File::findFiles|water::File::ignoreHiddenFiles, true, "*.sfz") > 0)
-            gSFZs.addArray(results);
+        if (water::File(it->toRawUTF8()).findChildFiles(results, water::File::findFiles|water::File::ignoreHiddenFiles, true, "*.sfz") > 0)
+        {
+            gSFZs.reserve(gSFZs.size() + results.size());
+            gSFZs.insert(gSFZs.end(), results.begin(), results.end());
+        }
     }
 }
+#endif
+
+// -------------------------------------------------------------------------------------------------------------------
+
+#ifdef HAVE_YSFX
+static std::vector<CB::CarlaJsfxUnit> gJSFXs;
+
+static void findJSFXs(const char* const jsfxPaths)
+{
+    gJSFXs.clear();
+
+    CARLA_SAFE_ASSERT_RETURN(jsfxPaths != nullptr,);
+
+    if (jsfxPaths[0] == '\0')
+        return;
+
+    const water::StringArray splitPaths(water::StringArray::fromTokens(jsfxPaths, CARLA_OS_SPLIT_STR, ""));
+
+    for (water::String *it = splitPaths.begin(), *end = splitPaths.end(); it != end; ++it)
+    {
+        std::vector<water::File> results;
+        const water::File path(it->toRawUTF8());
+
+        if (path.findChildFiles(results, water::File::findFiles|water::File::ignoreHiddenFiles, true, "*") > 0)
+        {
+            gJSFXs.reserve(gJSFXs.size() + results.size());
+
+            for (std::vector<water::File>::iterator it2=results.begin(), end2=results.end(); it2 != end2; ++it2)
+            {
+                const water::File& file(*it2);
+                const water::String fileExt = file.getFileExtension();
+                if (fileExt.isEmpty() || fileExt.equalsIgnoreCase(".jsfx"))
+                    gJSFXs.push_back(CB::CarlaJsfxUnit(path, file));
+            }
+        }
+    }
+}
+#endif
 
 // -------------------------------------------------------------------------------------------------------------------
 
@@ -153,10 +185,9 @@ static const CarlaCachedPluginInfo* get_cached_plugin_lv2(Lv2WorldClass& lv2Worl
 
         if (char* const bundle = lilv_file_uri_parse(lilvPlugin.get_bundle_uri().as_uri(), nullptr))
         {
-            water::File fbundle(bundle);
-            lilv_free(bundle);
-
+            const water::File fbundle(bundle);
             suri = (fbundle.getFileName() + CARLA_OS_SEP).toRawUTF8() + suri;
+            lilv_free(bundle);
         }
         else
         {
@@ -178,15 +209,23 @@ static const CarlaCachedPluginInfo* get_cached_plugin_lv2(Lv2WorldClass& lv2Worl
             lilv_node_free(nameNode);
         }
 
-        if (const char* const author = lilvPlugin.get_author_name().as_string())
-            smaker = author;
+        if (LilvNode* const authorNode = lilv_plugin_get_author_name(lilvPlugin.me))
+        {
+            if (const char* const author = lilv_node_as_string(authorNode))
+                smaker = author;
+            lilv_node_free(authorNode);
+        }
 
         Lilv::Nodes licenseNodes(lilvPlugin.get_value(lv2World.doap_license));
 
         if (licenseNodes.size() > 0)
         {
-            if (const char* const license = licenseNodes.get_first().as_string())
-                slicense = license;
+            if (LilvNode* const licenseNode = lilv_nodes_get_first(licenseNodes.me))
+            {
+                if (const char* const license = lilv_node_as_string(licenseNode))
+                    slicense = license;
+                // lilv_node_free(licenseNode);
+            }
         }
 
         lilv_nodes_free(const_cast<LilvNodes*>(licenseNodes.me));
@@ -206,7 +245,29 @@ static const CarlaCachedPluginInfo* get_cached_plugin_lv2(Lv2WorldClass& lv2Worl
         Lilv::UIs lilvUIs(lilvPlugin.get_uis());
 
         if (lilvUIs.size() > 0)
+        {
             info.hints |= CB::PLUGIN_HAS_CUSTOM_UI;
+
+            LILV_FOREACH(uis, it, lilvUIs)
+            {
+                Lilv::UI lilvUI(lilvUIs.get(it));
+                lv2World.load_resource(lilvUI.get_uri());
+
+               #if defined(CARLA_OS_MAC)
+                if (lilvUI.is_a(lv2World.ui_cocoa))
+               #elif defined(CARLA_OS_WIN)
+                if (lilvUI.is_a(lv2World.ui_windows))
+               #elif defined(HAVE_X11)
+                if (lilvUI.is_a(lv2World.ui_x11))
+               #else
+                if (false)
+               #endif
+                {
+                    info.hints |= CB::PLUGIN_HAS_CUSTOM_EMBED_UI;
+                    break;
+                }
+            }
+        }
 #ifdef CARLA_OS_LINUX
         else if (lilvPlugin.get_modgui_resources_directory().as_uri() != nullptr)
             info.hints |= CB::PLUGIN_HAS_CUSTOM_UI;
@@ -523,67 +584,7 @@ static const CarlaCachedPluginInfo* get_cached_plugin_lv2(Lv2WorldClass& lv2Worl
 
 // -------------------------------------------------------------------------------------------------------------------
 
-#if defined(USING_JUCE) && defined(CARLA_OS_MAC)
-static juce::StringArray gCachedAuPluginResults;
-
-static void findAUs()
-{
-    if (gCachedAuPluginResults.size() != 0)
-        return;
-
-    juce::AudioUnitPluginFormat auFormat;
-    gCachedAuPluginResults = auFormat.searchPathsForPlugins(juce::FileSearchPath(), false, false);
-}
-
-static const CarlaCachedPluginInfo* get_cached_plugin_au(const juce::String pluginId)
-{
-    static CarlaCachedPluginInfo info;
-    static CarlaString sname, slabel, smaker;
-
-    info.valid = false;
-
-    juce::AudioUnitPluginFormat auFormat;
-    juce::OwnedArray<juce::PluginDescription> results;
-    auFormat.findAllTypesForFile(results, pluginId);
-    CARLA_SAFE_ASSERT_RETURN(results.size() > 0, &info);
-    CARLA_SAFE_ASSERT(results.size() == 1);
-
-    juce::PluginDescription* const desc(results[0]);
-    CARLA_SAFE_ASSERT_RETURN(desc != nullptr, &info);
-
-    info.category = CB::getPluginCategoryFromName(desc->category.toRawUTF8());
-    info.hints    = 0x0;
-    info.valid    = true;
-
-    if (desc->isInstrument)
-        info.hints |= CB::PLUGIN_IS_SYNTH;
-    if (true)
-        info.hints |= CB::PLUGIN_HAS_CUSTOM_UI;
-
-    info.audioIns  = static_cast<uint32_t>(desc->numInputChannels);
-    info.audioOuts = static_cast<uint32_t>(desc->numOutputChannels);
-    info.cvIns     = 0;
-    info.cvOuts    = 0;
-    info.midiIns   = desc->isInstrument ? 1 : 0;
-    info.midiOuts  = 0;
-    info.parameterIns  = 0;
-    info.parameterOuts = 0;
-
-    sname  = desc->name.toRawUTF8();
-    slabel = desc->fileOrIdentifier.toRawUTF8();
-    smaker = desc->manufacturerName.toRawUTF8();
-
-    info.name      = sname;
-    info.label     = slabel;
-    info.maker     = smaker;
-    info.copyright = gCachedPluginsNullCharPtr;
-
-    return &info;
-}
-#endif
-
-// -------------------------------------------------------------------------------------------------------------------
-
+#ifdef HAVE_SFZ
 static const CarlaCachedPluginInfo* get_cached_plugin_sfz(const water::File& file)
 {
     static CarlaCachedPluginInfo info;
@@ -615,6 +616,84 @@ static const CarlaCachedPluginInfo* get_cached_plugin_sfz(const water::File& fil
     info.copyright = gCachedPluginsNullCharPtr;
     return &info;
 }
+#endif
+
+// -------------------------------------------------------------------------------------------------------------------
+
+#ifdef HAVE_YSFX
+static const CarlaCachedPluginInfo* get_cached_plugin_jsfx(const CB::CarlaJsfxUnit& unit)
+{
+    static CarlaCachedPluginInfo info;
+
+    ysfx_config_u config(ysfx_config_new());
+
+    const CarlaString rootPath = unit.getRootPath();
+    const CarlaString filePath = unit.getFilePath();
+
+    ysfx_register_builtin_audio_formats(config.get());
+    ysfx_set_import_root(config.get(), rootPath);
+    ysfx_guess_file_roots(config.get(), filePath);
+    ysfx_set_log_reporter(config.get(), &CB::CarlaJsfxLogging::logErrorsOnly);
+
+    ysfx_u effect(ysfx_new(config.get()));
+
+    if (! ysfx_load_file(effect.get(), filePath, 0))
+    {
+        info.valid = false;
+        return &info;
+    }
+
+    // plugins with neither @block nor @sample are valid, but they are useless
+    // also use this as a sanity check against misdetected files
+    // since JSFX parsing is so permissive, it might accept lambda text files
+    if (! ysfx_has_section(effect.get(), ysfx_section_block) &&
+        ! ysfx_has_section(effect.get(), ysfx_section_sample))
+    {
+        info.valid = false;
+        return &info;
+    }
+
+    static CarlaString name, label, maker;
+    label = unit.getFileId();
+    name = ysfx_get_name(effect.get());
+    maker = ysfx_get_author(effect.get());
+
+    info.valid = true;
+
+    info.category = CB::CarlaJsfxCategories::getFromEffect(effect.get());
+
+    info.audioIns = ysfx_get_num_inputs(effect.get());
+    info.audioOuts = ysfx_get_num_outputs(effect.get());
+
+    info.cvIns = 0;
+    info.cvOuts = 0;
+
+    info.midiIns = 1;
+    info.midiOuts = 1;
+
+    info.parameterIns = 0;
+    info.parameterOuts = 0;
+    for (uint32_t sliderIndex = 0; sliderIndex < ysfx_max_sliders; ++sliderIndex)
+    {
+        if (ysfx_slider_exists(effect.get(), sliderIndex))
+            ++info.parameterIns;
+    }
+
+    info.hints    = 0;
+
+#if 0 // TODO(jsfx) when supporting custom graphics
+    if (ysfx_has_section(effect.get(), ysfx_section_gfx))
+        info.hints |= CB::PLUGIN_HAS_CUSTOM_UI;
+#endif
+
+    info.name      = name.buffer();
+    info.label     = label.buffer();
+    info.maker     = maker.buffer();
+    info.copyright = gCachedPluginsNullCharPtr;
+
+    return &info;
+}
+#endif
 
 // -------------------------------------------------------------------------------------------------------------------
 
@@ -637,17 +716,17 @@ uint carla_get_cached_plugin_count(CB::PluginType ptype, const char* pluginPath)
         return lv2World.getPluginCount();
     }
 
-#if defined(USING_JUCE) && defined(CARLA_OS_MAC)
-    case CB::PLUGIN_AU: {
-        findAUs();
-        return static_cast<uint>(gCachedAuPluginResults.size());
-    }
-#endif
-
-    case CB::PLUGIN_SFZ: {
+   #ifdef HAVE_SFZ
+    case CB::PLUGIN_SFZ:
         findSFZs(pluginPath);
         return static_cast<uint>(gSFZs.size());
-    }
+   #endif
+
+   #ifdef HAVE_YSFX
+    case CB::PLUGIN_JSFX:
+        findJSFXs(pluginPath);
+        return static_cast<uint>(gJSFXs.size());
+   #endif
 
     default:
         return 0;
@@ -682,17 +761,17 @@ const CarlaCachedPluginInfo* carla_get_cached_plugin_info(CB::PluginType ptype, 
         return get_cached_plugin_lv2(lv2World, lilvPlugin);
     }
 
-#if defined(USING_JUCE) && defined(CARLA_OS_MAC)
-    case CB::PLUGIN_AU: {
-        CARLA_SAFE_ASSERT_BREAK(index < static_cast<uint>(gCachedAuPluginResults.size()));
-        return get_cached_plugin_au(gCachedAuPluginResults.strings.getUnchecked(static_cast<int>(index)));
-    }
-#endif
+   #ifdef HAVE_SFZ
+    case CB::PLUGIN_SFZ:
+        CARLA_SAFE_ASSERT_BREAK(index < gSFZs.size());
+        return get_cached_plugin_sfz(gSFZs[index]);
+   #endif
 
-    case CB::PLUGIN_SFZ: {
-        CARLA_SAFE_ASSERT_BREAK(index < static_cast<uint>(gSFZs.size()));
-        return get_cached_plugin_sfz(gSFZs.getUnchecked(static_cast<int>(index)));
-    }
+   #ifdef HAVE_YSFX
+    case CB::PLUGIN_JSFX:
+        CARLA_SAFE_ASSERT_BREAK(index < static_cast<uint>(gJSFXs.size()));
+        return get_cached_plugin_jsfx(gJSFXs[index]);
+   #endif
 
     default:
         break;
@@ -704,7 +783,7 @@ const CarlaCachedPluginInfo* carla_get_cached_plugin_info(CB::PluginType ptype, 
 
 // -------------------------------------------------------------------------------------------------------------------
 
-#ifndef CARLA_PLUGIN_EXPORT
+#ifndef CARLA_PLUGIN_BUILD
 # include "../native-plugins/_data.cpp"
 #endif
 

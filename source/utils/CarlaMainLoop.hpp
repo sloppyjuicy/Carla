@@ -33,14 +33,19 @@ static inline
 bool runMainLoopOnce()
 {
 #if defined(CARLA_OS_MAC)
-    NSAutoreleasePool* pool = [[NSAutoreleasePool alloc] init];
+    NSAutoreleasePool* const pool = [[NSAutoreleasePool alloc] init];
+    NSDate* const date = [NSDate distantPast];
     NSEvent* event;
 
     for (;;)
     {
         event = [NSApp
+                #ifdef __MAC_10_12
+                 nextEventMatchingMask:NSEventMaskAny
+                #else
                  nextEventMatchingMask:NSAnyEventMask
-                             untilDate:[NSDate distantPast]
+                #endif
+                             untilDate:date
                                 inMode:NSDefaultRunLoopMode
                                dequeue:YES];
 

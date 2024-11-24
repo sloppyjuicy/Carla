@@ -1,30 +1,24 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
-# LED Button, a custom Qt widget
-# Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License as
-# published by the Free Software Foundation; either version 2 of
-# the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# For a full copy of the GNU General Public License see the doc/GPL.txt file.
-
-# ------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------
 # Imports (Global)
 
-from PyQt5.QtCore import QRectF
-from PyQt5.QtGui import QPainter, QPixmap
-from PyQt5.QtSvg import QSvgWidget
-from PyQt5.QtWidgets import QPushButton
+from qt_compat import qt_config
 
-# ------------------------------------------------------------------------------------------------------------
+if qt_config == 5:
+    from PyQt5.QtCore import QRectF
+    from PyQt5.QtGui import QPainter, QPixmap
+    from PyQt5.QtSvg import QSvgWidget
+    from PyQt5.QtWidgets import QPushButton
+elif qt_config == 6:
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QPainter, QPixmap
+    from PyQt6.QtSvgWidgets import QSvgWidget
+    from PyQt6.QtWidgets import QPushButton
+
+# ---------------------------------------------------------------------------------------------------------------------
 # Widget Class
 
 class LEDButton(QPushButton):
@@ -61,10 +55,10 @@ class LEDButton(QPushButton):
             self.fLastColor = self.UNSET
 
         if self._loadImageNowIfNeeded():
-            if isinstance(self.fImage, QPixmap):
-                size = self.fImage.width()
-            else:
-                size = self.fImage.sizeHint().width()
+            #if isinstance(self.fImage, QPixmap):
+                #size = self.fImage.width()
+            #else:
+                #size = self.fImage.sizeHint().width()
 
             self.fRect = QRectF(self.fImage.rect())
             self.setFixedSize(self.fImage.size())
@@ -87,7 +81,7 @@ class LEDButton(QPushButton):
     def _loadImageNowIfNeeded(self):
         if self.isChecked():
             if self.fLastColor == self.fColor:
-                return
+                return False
             if self.fColor == self.OFF:
                 img = ":/scalable/led_off.svg"
             elif self.fColor == self.BLUE:
@@ -122,3 +116,5 @@ class LEDButton(QPushButton):
         self.update()
 
         return True
+
+# ---------------------------------------------------------------------------------------------------------------------

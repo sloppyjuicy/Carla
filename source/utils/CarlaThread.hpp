@@ -1,6 +1,6 @@
 /*
  * Carla Thread
- * Copyright (C) 2013-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2013-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -21,9 +21,10 @@
 #include "CarlaMutex.hpp"
 #include "CarlaString.hpp"
 #include "CarlaProcessUtils.hpp"
+#include "CarlaTimeUtils.hpp"
 
-#ifdef CARLA_OS_LINUX
-# include <sys/prctl.h>
+#ifdef CARLA_OS_WASM
+# error Threads do not work under wasm!
 #endif
 
 // -----------------------------------------------------------------------
@@ -39,11 +40,11 @@ protected:
         : fLock(),
           fSignal(),
           fName(threadName),
-#ifdef PTW32_DLLPORT
+         #ifdef PTW32_DLLPORT
           fHandle({nullptr, 0}),
-#else
+         #else
           fHandle(0),
-#endif
+         #endif
           fShouldExit(false) {}
 
     /*
@@ -69,11 +70,11 @@ public:
      */
     bool isThreadRunning() const noexcept
     {
-#ifdef PTW32_DLLPORT
-        return (fHandle.p != nullptr);
-#else
-        return (fHandle != 0);
-#endif
+       #ifdef PTW32_DLLPORT
+        return fHandle.p != nullptr;
+       #else
+        return fHandle != 0;
+       #endif
     }
 
     /*
@@ -87,10 +88,13 @@ public:
     /*
      * Start the thread.
      */
-    bool startThread(const bool withRealtimePriority = false) noexcept
+    bool startThread(bool withRealtimePriority = false) noexcept
     {
         // check if already running
         CARLA_SAFE_ASSERT_RETURN(! isThreadRunning(), true);
+
+        if (withRealtimePriority && std::getenv("CARLA_BRIDGE_DUMMY") != nullptr)
+            withRealtimePriority = false;
 
         pthread_t handle;
 
@@ -104,25 +108,27 @@ public:
         {
             sched_param.sched_priority = 80;
 
-#ifndef CARLA_OS_HAIKU
+           #ifndef CARLA_OS_HAIKU
             if (pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM)          == 0  &&
                 pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED) == 0  &&
-# ifndef CARLA_OS_WIN
+              #ifndef CARLA_OS_WIN
                (pthread_attr_setschedpolicy(&attr, SCHED_FIFO)              == 0  ||
                 pthread_attr_setschedpolicy(&attr, SCHED_RR)                == 0) &&
-# endif
+              #endif
                 pthread_attr_setschedparam(&attr, &sched_param)             == 0)
             {
                 carla_stdout("CarlaThread setup with realtime priority successful");
             }
             else
-#endif
+           #endif
             {
                 carla_stdout("CarlaThread setup with realtime priority failed, going with normal priority instead");
                 pthread_attr_destroy(&attr);
                 pthread_attr_init(&attr);
             }
         }
+
+        pthread_attr_setdetachstate(&attr, 1);
 
         const CarlaMutexLocker cml(fLock);
 
@@ -135,17 +141,17 @@ public:
        {
             carla_stdout("CarlaThread with realtime priority failed on creation, going with normal priority instead");
             pthread_attr_init(&attr);
+            pthread_attr_setdetachstate(&attr, 1);
             ok = pthread_create(&handle, &attr, _entryPoint, this) == 0;
             pthread_attr_destroy(&attr);
        }
 
         CARLA_SAFE_ASSERT_RETURN(ok, false);
-#ifdef PTW32_DLLPORT
+       #ifdef PTW32_DLLPORT
         CARLA_SAFE_ASSERT_RETURN(handle.p != nullptr, false);
-#else
+       #else
         CARLA_SAFE_ASSERT_RETURN(handle != 0, false);
-#endif
-        pthread_detach(handle);
+       #endif
         _copyFrom(handle);
 
         // wait for thread to start
@@ -229,7 +235,12 @@ public:
      */
     pthread_t getThreadId() const noexcept
     {
+       #ifdef PTW32_DLLPORT
+        const pthread_t handle = { fHandle.p, fHandle.x };
+        return handle;
+       #else
         return fHandle;
+       #endif
     }
 
     /*
@@ -240,9 +251,9 @@ public:
         CARLA_SAFE_ASSERT_RETURN(name != nullptr && name[0] != '\0',);
 
         carla_setProcessName(name);
-#if defined(__GLIBC__) && (__GLIBC__ * 1000 + __GLIBC_MINOR__) >= 2012 && !defined(CARLA_OS_GNU_HURD)
+       #if defined(__GLIBC__) && (__GLIBC__ * 1000 + __GLIBC_MINOR__) >= 2012 && !defined(CARLA_OS_GNU_HURD)
         pthread_setname_np(pthread_self(), name);
-#endif
+       #endif
     }
 
     // -------------------------------------------------------------------
@@ -259,12 +270,12 @@ private:
      */
     void _init() noexcept
     {
-#ifdef PTW32_DLLPORT
+       #ifdef PTW32_DLLPORT
         fHandle.p = nullptr;
         fHandle.x = 0;
-#else
+       #else
         fHandle = 0;
-#endif
+       #endif
     }
 
     /*
@@ -272,12 +283,12 @@ private:
      */
     void _copyFrom(const pthread_t& handle) noexcept
     {
-#ifdef PTW32_DLLPORT
+       #ifdef PTW32_DLLPORT
         fHandle.p = handle.p;
         fHandle.x = handle.x;
-#else
+       #else
         fHandle = handle;
-#endif
+       #endif
     }
 
     /*
@@ -285,12 +296,12 @@ private:
      */
     void _copyTo(volatile pthread_t& handle) const noexcept
     {
-#ifdef PTW32_DLLPORT
+       #ifdef PTW32_DLLPORT
         handle.p = fHandle.p;
         handle.x = fHandle.x;
-#else
+       #else
         handle = fHandle;
-#endif
+       #endif
     }
 
     /*
@@ -321,7 +332,7 @@ private:
         return nullptr;
     }
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaThread)
+    CARLA_DECLARE_NON_COPYABLE(CarlaThread)
 };
 
 // -----------------------------------------------------------------------

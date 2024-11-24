@@ -1,6 +1,6 @@
 /*
  * DISTRHO Plugin Framework (DPF)
- * Copyright (C) 2012-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2022 Filipe Coelho <falktx@falktx.com>
  *
  * Permission to use, copy, modify, and/or distribute this software for any purpose with
  * or without fee is hereby granted, provided that the above copyright notice and this
@@ -22,13 +22,22 @@
 
 #include "CarlaNative.hpp"
 
+// TODO
+#undef DISTRHO_PLUGIN_WANT_PARAMETER_VALUE_CHANGE_REQUEST
+#define DISTRHO_PLUGIN_WANT_PARAMETER_VALUE_CHANGE_REQUEST 0
+
 // -----------------------------------------------------------------------
 
 START_NAMESPACE_DISTRHO
 
 #if ! DISTRHO_PLUGIN_WANT_MIDI_OUTPUT
-static const writeMidiFunc writeMidiCallback = nullptr;
+static constexpr const writeMidiFunc writeMidiCallback = nullptr;
 #endif
+#if ! DISTRHO_PLUGIN_WANT_PARAMETER_VALUE_CHANGE_REQUEST
+static constexpr const requestParameterValueChangeFunc requestParameterValueChangeCallback = nullptr;
+#endif
+// TODO
+static constexpr const updateStateValueFunc updateStateValueCallback = nullptr;
 
 #if DISTRHO_PLUGIN_HAS_UI
 // -----------------------------------------------------------------------
@@ -46,7 +55,12 @@ class UICarla
 public:
     UICarla(const NativeHostDescriptor* const host, PluginExporter* const plugin)
         : fHost(host),
-          fUI(this, 0, editParameterCallback, setParameterCallback, setStateCallback, sendNoteCallback, setSizeCallback, plugin->getInstancePointer())
+          fUI(this, 0, plugin->getSampleRate(),
+              editParameterCallback, setParameterCallback, setStateCallback, sendNoteCallback,
+              nullptr, // window size
+              nullptr, // TODO file request
+              nullptr, // bundle path
+              plugin->getInstancePointer())
     {
         fUI.setWindowTitle(host->uiName);
 
@@ -68,7 +82,7 @@ public:
 
     bool carla_idle()
     {
-        return fUI.idle();
+        return fUI.plugin_idle();
     }
 
     void carla_setParameterValue(const uint32_t index, const float value)
@@ -98,13 +112,9 @@ public:
     // ---------------------------------------------
 
 protected:
-    void handleEditParameter(const uint32_t rindex, const bool touch)
+    void handleEditParameter(const uint32_t, const bool)
     {
-        fHost->dispatcher(fHost->handle,
-                          NATIVE_HOST_OPCODE_UI_TOUCH_PARAMETER,
-                          static_cast<int32_t>(rindex),
-                          touch ? 1 : 0,
-                          nullptr, 0.0f);
+        // TODO
     }
 
     void handleSetParameterValue(const uint32_t rindex, const float value)
@@ -125,11 +135,6 @@ protected:
         // TODO
     }
 #endif
-
-    void handleSetSize(const uint width, const uint height)
-    {
-        fUI.setWindowSize(width, height);
-    }
 
     // ---------------------------------------------
 
@@ -169,11 +174,6 @@ private:
     }
 #endif
 
-    static void setSizeCallback(void* ptr, uint width, uint height)
-    {
-        handlePtr->handleSetSize(width, height);
-    }
-
     #undef handlePtr
 
     CARLA_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(UICarla)
@@ -188,7 +188,7 @@ class PluginCarla : public NativePluginClass
 public:
     PluginCarla(const NativeHostDescriptor* const host)
         : NativePluginClass(host),
-          fPlugin(this, writeMidiCallback),
+          fPlugin(this, writeMidiCallback, requestParameterValueChangeCallback, updateStateValueCallback),
           fScalePointsCache(nullptr)
     {
 #if DISTRHO_PLUGIN_HAS_UI
@@ -235,7 +235,7 @@ protected:
             int      nativeParamHints = ::NATIVE_PARAMETER_IS_ENABLED;
             const uint32_t paramHints = fPlugin.getParameterHints(index);
 
-            if (paramHints & kParameterIsAutomable)
+            if (paramHints & kParameterIsAutomatable)
                 nativeParamHints |= ::NATIVE_PARAMETER_IS_AUTOMABLE;
             if (paramHints & kParameterIsBoolean)
                 nativeParamHints |= ::NATIVE_PARAMETER_IS_BOOLEAN;
@@ -386,13 +386,13 @@ protected:
             realMidiEvent.dataExt = nullptr;
         }
 
-        fPlugin.run(inBuffer, outBuffer, frames, realMidiEvents, midiEventCount);
+        fPlugin.run(const_cast<const float**>(inBuffer), outBuffer, frames, realMidiEvents, midiEventCount);
     }
 #else
     void process(const float* const* const inBuffer, float** const outBuffer, const uint32_t frames,
                  const NativeMidiEvent* const, const uint32_t) override
     {
-        fPlugin.run(inBuffer, outBuffer, frames);
+        fPlugin.run(const_cast<const float**>(inBuffer), outBuffer, frames);
     }
 #endif
 
@@ -497,10 +497,7 @@ private:
     void createUiIfNeeded()
     {
         if (fUiPtr == nullptr)
-        {
-            d_lastUiSampleRate = getSampleRate();
             fUiPtr = new UICarla(getHostHandle(), &fPlugin);
-        }
     }
 #endif
 
@@ -518,6 +515,19 @@ private:
     }
 #endif
 
+#if DISTRHO_PLUGIN_WANT_PARAMETER_VALUE_CHANGE_REQUEST
+    bool requestParameterValueChange(const uint32_t index, const float value)
+    {
+        // TODO implementation
+        return false;
+    }
+
+    static bool requestParameterValueChangeCallback(void* ptr, const uint32_t index, const float value)
+    {
+        return thisPtr->requestParameterValueChange(index, value);
+    }
+#endif
+
     CARLA_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginCarla)
 
     // -------------------------------------------------------------------
@@ -525,8 +535,8 @@ private:
 public:
     static NativePluginHandle _instantiate(const NativeHostDescriptor* host)
     {
-        d_lastBufferSize = host->get_buffer_size(host->handle);
-        d_lastSampleRate = host->get_sample_rate(host->handle);
+        d_nextBufferSize = host->get_buffer_size(host->handle);
+        d_nextSampleRate = host->get_sample_rate(host->handle);
         return new PluginCarla(host);
     }
 

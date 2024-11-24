@@ -1,5 +1,6 @@
 /**
    Copyright (C) 2011-2013 Robin Gareus <robin@gareus.org>
+   Copyright (C) 2014-2023 Filipe Coelho <falktx@falktx.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU Lesser Public License as published by
@@ -16,9 +17,10 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
+
 #ifndef __AD_PLUGIN_H__
 #define __AD_PLUGIN_H__
-#include <stdint.h>
+
 #include "ad.h"
 
 #define dbg(A, B, ...) ad_debug_printf(__func__, A, B, ##__VA_ARGS__)

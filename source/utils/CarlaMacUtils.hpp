@@ -1,6 +1,6 @@
 /*
  * Carla macOS utils
- * Copyright (C) 2018-2021 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2018-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -23,7 +23,14 @@
 #endif
 
 #include "CarlaBackend.h"
- 
+
+// don't include Foundation.h here
+extern "C" {
+typedef struct __CFBundle* CFBundleRef;
+typedef const struct __CFString* CFStringRef;
+void* CFBundleGetFunctionPointerForName(CFBundleRef, CFStringRef);
+}
+
 CARLA_BACKEND_START_NAMESPACE
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -31,17 +38,19 @@ CARLA_BACKEND_START_NAMESPACE
 /*
  * ...
  */
-void initStandaloneApplication();
+CARLA_API void initStandaloneApplication();
 
 /*
  * ...
  */
-const char* findBinaryInBundle(const char* const bundleDir);
+CARLA_API const char* findBinaryInBundle(const char* const bundleDir);
 
 /*
  * ...
  */
-bool removeFileFromQuarantine(const char* const filename);
+CARLA_API bool removeFileFromQuarantine(const char* const filename);
+
+// --------------------------------------------------------------------------------------------------------------------
 
 /*
  * ...
@@ -53,6 +62,25 @@ public:
 
 private:
     void* const pool;
+};
+
+// --------------------------------------------------------------------------------------------------------------------
+
+struct BundleLoader {
+    BundleLoader();
+    ~BundleLoader();
+    bool load(const char* const filename);
+    CFBundleRef getRef() const noexcept;
+
+    template<typename Func>
+    inline Func getSymbol(const CFStringRef name) const
+    {
+        return reinterpret_cast<Func>(CFBundleGetFunctionPointerForName(getRef(), name));
+    }
+
+private:
+    struct PrivateData;
+    PrivateData* const pData;
 };
 
 // --------------------------------------------------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 /*
  * Carla Mutex
- * Copyright (C) 2013-2016 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2013-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -27,7 +27,7 @@ class CarlaSignal;
 // -----------------------------------------------------------------------
 // CarlaMutex class
 
-class CarlaMutex
+class CARLA_API CarlaMutex
 {
 public:
     /*
@@ -39,7 +39,12 @@ public:
     {
         pthread_mutexattr_t attr;
         pthread_mutexattr_init(&attr);
+       #ifndef PTW32_DLLPORT
         pthread_mutexattr_setprotocol(&attr, inheritPriority ? PTHREAD_PRIO_INHERIT : PTHREAD_PRIO_NONE);
+       #else
+        // unsupported?
+        (void)inheritPriority;
+       #endif
         pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_NORMAL);
         pthread_mutex_init(&fMutex, &attr);
         pthread_mutexattr_destroy(&attr);
@@ -97,7 +102,7 @@ private:
     mutable pthread_mutex_t fMutex;
     mutable volatile bool fTryLockWasCalled; // true if "tryLock()" was called at least once
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaMutex)
+    CARLA_DECLARE_NON_COPYABLE(CarlaMutex)
 };
 
 // -----------------------------------------------------------------------
@@ -110,22 +115,22 @@ public:
      * Constructor.
      */
     CarlaRecursiveMutex() noexcept
-#ifdef CARLA_OS_WIN
+       #ifdef CARLA_OS_WIN
         : fSection()
-#else
+       #else
         : fMutex()
-#endif
+       #endif
     {
-#ifdef CARLA_OS_WIN
+       #ifdef CARLA_OS_WIN
         InitializeCriticalSection(&fSection);
-#else
+       #else
         pthread_mutexattr_t attr;
         pthread_mutexattr_init(&attr);
         pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
         pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
         pthread_mutex_init(&fMutex, &attr);
         pthread_mutexattr_destroy(&attr);
-#endif
+       #endif
     }
 
     /*
@@ -133,11 +138,11 @@ public:
      */
     ~CarlaRecursiveMutex() noexcept
     {
-#ifdef CARLA_OS_WIN
+       #ifdef CARLA_OS_WIN
         DeleteCriticalSection(&fSection);
-#else
+       #else
         pthread_mutex_destroy(&fMutex);
-#endif
+       #endif
     }
 
     /*
@@ -145,12 +150,12 @@ public:
      */
     bool lock() const noexcept
     {
-#ifdef CARLA_OS_WIN
+       #ifdef CARLA_OS_WIN
         EnterCriticalSection(&fSection);
         return true;
-#else
+       #else
         return (pthread_mutex_lock(&fMutex) == 0);
-#endif
+       #endif
     }
 
     /*
@@ -159,11 +164,11 @@ public:
      */
     bool tryLock() const noexcept
     {
-#ifdef CARLA_OS_WIN
+       #ifdef CARLA_OS_WIN
         return (TryEnterCriticalSection(&fSection) != FALSE);
-#else
+       #else
         return (pthread_mutex_trylock(&fMutex) == 0);
-#endif
+       #endif
     }
 
     /*
@@ -171,21 +176,21 @@ public:
      */
     void unlock() const noexcept
     {
-#ifdef CARLA_OS_WIN
+       #ifdef CARLA_OS_WIN
         LeaveCriticalSection(&fSection);
-#else
+       #else
         pthread_mutex_unlock(&fMutex);
-#endif
+       #endif
     }
 
 private:
-#ifdef CARLA_OS_WIN
+   #ifdef CARLA_OS_WIN
     mutable CRITICAL_SECTION fSection;
-#else
+   #else
     mutable pthread_mutex_t fMutex;
-#endif
+   #endif
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaRecursiveMutex)
+    CARLA_DECLARE_NON_COPYABLE(CarlaRecursiveMutex)
 };
 
 // -----------------------------------------------------------------------
@@ -210,7 +215,9 @@ public:
 
         pthread_mutexattr_t mattr;
         pthread_mutexattr_init(&mattr);
+       #ifndef PTW32_DLLPORT
         pthread_mutexattr_setprotocol(&mattr, PTHREAD_PRIO_INHERIT);
+       #endif
         pthread_mutexattr_settype(&mattr, PTHREAD_MUTEX_NORMAL);
         pthread_mutex_init(&fMutex, &mattr);
         pthread_mutexattr_destroy(&mattr);
@@ -266,7 +273,7 @@ private:
     volatile bool   fTriggered;
 
     CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaSignal)
+    CARLA_DECLARE_NON_COPYABLE(CarlaSignal)
 };
 
 // -----------------------------------------------------------------------
@@ -291,7 +298,7 @@ private:
     const Mutex& fMutex;
 
     CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaScopeLocker)
+    CARLA_DECLARE_NON_COPYABLE(CarlaScopeLocker)
 };
 
 // -----------------------------------------------------------------------
@@ -335,7 +342,7 @@ private:
     const bool   fLocked;
 
     CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaScopeTryLocker)
+    CARLA_DECLARE_NON_COPYABLE(CarlaScopeTryLocker)
 };
 
 // -----------------------------------------------------------------------
@@ -360,7 +367,7 @@ private:
     const Mutex& fMutex;
 
     CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaScopeUnlocker)
+    CARLA_DECLARE_NON_COPYABLE(CarlaScopeUnlocker)
 };
 
 // -----------------------------------------------------------------------

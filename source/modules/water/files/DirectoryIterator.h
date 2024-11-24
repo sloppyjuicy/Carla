@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2024 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -101,8 +101,6 @@ public:
     */
     bool next (bool* isDirectory,
                int64* fileSize,
-               Time* modTime,
-               Time* creationTime,
                bool* isReadOnly);
 
     /** Returns the file that the iterator is currently pointing at.
@@ -110,13 +108,6 @@ public:
         The result of this call is only valid after a call to next() has returned true.
     */
     const File& getFile() const;
-
-    /** Returns a guess of how far through the search the iterator has got.
-
-        @returns    a value 0.0 to 1.0 to show the progress, although this won't be
-                    very accurate.
-    */
-    float getEstimatedProgress() const;
 
 private:
     //==============================================================================
@@ -126,9 +117,7 @@ private:
         NativeIterator (const File& directory, const String& wildCard);
         ~NativeIterator();
 
-        bool next (String& filenameFound,
-                   bool* isDirectory, int64* fileSize,
-                   Time* modTime, Time* creationTime, bool* isReadOnly);
+        bool next (String& filenameFound, bool* isDirectory, int64* fileSize, bool* isReadOnly);
 
         class Pimpl;
 
@@ -136,7 +125,7 @@ private:
         friend class DirectoryIterator;
         CarlaScopedPointer<Pimpl> pimpl;
 
-        CARLA_DECLARE_NON_COPY_CLASS (NativeIterator)
+        CARLA_DECLARE_NON_COPYABLE (NativeIterator)
     };
 
     StringArray wildCards;
@@ -153,7 +142,7 @@ private:
     static StringArray parseWildcards (const String& pattern);
     static bool fileMatches (const StringArray& wildCards, const String& filename);
 
-    CARLA_DECLARE_NON_COPY_CLASS (DirectoryIterator)
+    CARLA_DECLARE_NON_COPYABLE (DirectoryIterator)
 };
 
 }

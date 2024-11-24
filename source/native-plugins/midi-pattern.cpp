@@ -1,6 +1,6 @@
 /*
  * Carla Native Plugins
- * Copyright (C) 2012-2021 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2022 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -79,7 +79,7 @@ protected:
         static NativeParameter param;
         static NativeParameterScalePoint scalePoints[10];
 
-        int hints = NATIVE_PARAMETER_IS_ENABLED|NATIVE_PARAMETER_IS_AUTOMABLE|NATIVE_PARAMETER_IS_INTEGER;
+        int hints = NATIVE_PARAMETER_IS_ENABLED|NATIVE_PARAMETER_IS_AUTOMATABLE|NATIVE_PARAMETER_IS_INTEGER;
 
         switch (index)
         {
@@ -306,6 +306,7 @@ protected:
         fLastFrame = fTimeInfo.frame;
     }
 
+#ifndef CARLA_OS_WASM
     // -------------------------------------------------------------------
     // Plugin UI calls
 
@@ -352,9 +353,10 @@ protected:
 
             CARLA_SAFE_ASSERT_RETURN(writeMessage(strBuf),);
 
-            flushMessages();
+            syncMessages();
         }
     }
+#endif
 
     // -------------------------------------------------------------------
     // Plugin state calls
@@ -368,8 +370,10 @@ protected:
     {
         fMidiOut.setState(data);
 
+#ifndef CARLA_OS_WASM
         if (isPipeRunning())
             _sendEventsToUI();
+#endif
     }
 
     // -------------------------------------------------------------------
@@ -397,6 +401,7 @@ protected:
         NativePluginAndUiClass::writeMidiEvent(&midiEvent);
     }
 
+#ifndef CARLA_OS_WASM
     // -------------------------------------------------------------------
     // Pipe Server calls
 
@@ -481,6 +486,7 @@ protected:
 
         return false;
     }
+#endif
 
     // -------------------------------------------------------------------
 
@@ -502,6 +508,7 @@ private:
 
     float fParameters[kParameterCount];
 
+#ifndef CARLA_OS_WASM
     void _sendEventsToUI() const noexcept
     {
         char strBuf[0xff+1];
@@ -540,6 +547,7 @@ private:
             }
         }
     }
+#endif
 
     PluginClassEND(MidiPatternPlugin)
     CARLA_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiPatternPlugin)
@@ -569,10 +577,10 @@ static const NativePluginDescriptor midipatternDesc = {
 
 // -----------------------------------------------------------------------
 
-CARLA_EXPORT
+CARLA_API_EXPORT
 void carla_register_native_plugin_midipattern();
 
-CARLA_EXPORT
+CARLA_API_EXPORT
 void carla_register_native_plugin_midipattern()
 {
     carla_register_native_plugin(&midipatternDesc);

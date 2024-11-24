@@ -1,6 +1,6 @@
 /*
  * Carla Native Plugins
- * Copyright (C) 2013-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2013-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -40,7 +40,7 @@
 #include "water/files/File.h"
 
 #include "CarlaMathUtils.hpp"
-#include "CarlaVstUtils.hpp"
+#include "CarlaVst2Utils.hpp"
 
 static uint32_t d_lastBufferSize = 0;
 static double   d_lastSampleRate = 0.0;
@@ -398,7 +398,7 @@ public:
             break;
 
         case effEditGetRect:
-            *(ERect**)ptr = &fVstRect;
+            *(VstRect**)ptr = &fVstRect;
             ret = 1;
             break;
 
@@ -408,7 +408,8 @@ public:
                 if (kIsUsingUILauncher)
                 {
                     destoryUILauncher(fUiLauncher);
-                    fUiLauncher = createUILauncher((intptr_t)ptr, fDescriptor, fHandle);
+                    fUiLauncher = createUILauncher((uintptr_t)ptr, fDescriptor, fHandle);
+                    getUILauncherSize(fUiLauncher, &fVstRect);
                 }
                 else
                 {
@@ -833,7 +834,7 @@ private:
     NativeMidiEvent fMidiEvents[kMaxMidiEvents];
     char            fProgramName[32+1];
     NativeTimeInfo  fTimeInfo;
-    ERect           fVstRect;
+    VstRect         fVstRect;
 
     // UI button
     CarlaUILauncher* fUiLauncher;
@@ -871,7 +872,7 @@ private:
             carla_zeroStructs(mdata, kMaxMidiEvents);
         }
 
-        CARLA_DECLARE_NON_COPY_STRUCT(FixedVstEvents);
+        CARLA_DECLARE_NON_COPYABLE(FixedVstEvents);
     } fMidiOutEvents;
 
     char* fStateChunk;

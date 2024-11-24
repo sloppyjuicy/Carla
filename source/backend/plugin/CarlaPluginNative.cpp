@@ -1,6 +1,6 @@
 /*
  * Carla Native Plugin
- * Copyright (C) 2012-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2022 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -25,7 +25,6 @@
 #include "water/misc/Time.h"
 #include "water/text/StringArray.h"
 
-using water::jmax;
 using water::String;
 using water::StringArray;
 
@@ -172,7 +171,7 @@ struct NativePluginMidiOutData {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(NativePluginMidiOutData)
+    CARLA_DECLARE_NON_COPYABLE(NativePluginMidiOutData)
 };
 
 struct NativePluginMidiInData : NativePluginMidiOutData {
@@ -237,7 +236,7 @@ struct NativePluginMidiInData : NativePluginMidiOutData {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(NativePluginMidiInData)
+    CARLA_DECLARE_NON_COPYABLE(NativePluginMidiInData)
 };
 
 // -----------------------------------------------------
@@ -765,7 +764,7 @@ public:
         CarlaPlugin::setParameterValue(parameterId, fixedValue, sendGui, sendOsc, sendCallback);
     }
 
-    void setParameterValueRT(const uint32_t parameterId, const float value, const bool sendCallbackLater) noexcept override
+    void setParameterValueRT(const uint32_t parameterId, const float value, const uint32_t frameOffset, const bool sendCallbackLater) noexcept override
     {
         CARLA_SAFE_ASSERT_RETURN(fDescriptor != nullptr,);
         CARLA_SAFE_ASSERT_RETURN(fDescriptor->set_parameter_value != nullptr,);
@@ -780,7 +779,7 @@ public:
         if (fHandle2 != nullptr)
             fDescriptor->set_parameter_value(fHandle2, parameterId, fixedValue);
 
-        CarlaPlugin::setParameterValueRT(parameterId, fixedValue, sendCallbackLater);
+        CarlaPlugin::setParameterValueRT(parameterId, fixedValue, frameOffset, sendCallbackLater);
     }
 
     void setCustomData(const char* const type, const char* const key, const char* const value, const bool sendGui) override
@@ -790,13 +789,21 @@ public:
         CARLA_SAFE_ASSERT_RETURN(type != nullptr && type[0] != '\0',);
         CARLA_SAFE_ASSERT_RETURN(key != nullptr && key[0] != '\0',);
         CARLA_SAFE_ASSERT_RETURN(value != nullptr,);
-        carla_debug("CarlaPluginNative::setCustomData(%s, %s, ..., %s)", type, key, bool2str(sendGui));
+        carla_debug("CarlaPluginNative::setCustomData(\"%s\", \"%s\", ..., %s)", type, key, bool2str(sendGui));
 
         if (std::strcmp(type, CUSTOM_DATA_TYPE_PROPERTY) == 0)
             return CarlaPlugin::setCustomData(type, key, value, sendGui);
 
-        if (std::strcmp(type, CUSTOM_DATA_TYPE_STRING) != 0 && std::strcmp(type, CUSTOM_DATA_TYPE_CHUNK) != 0)
-            return carla_stderr2("CarlaPluginNative::setCustomData(\"%s\", \"%s\", \"%s\", %s) - type is invalid", type, key, value, bool2str(sendGui));
+        if (std::strcmp(type, CUSTOM_DATA_TYPE_PATH) == 0)
+        {
+            CARLA_SAFE_ASSERT_RETURN(std::strcmp(key, "file") == 0,);
+            CARLA_SAFE_ASSERT_RETURN(value[0] != '\0',);
+        }
+        else if (std::strcmp(type, CUSTOM_DATA_TYPE_STRING) != 0 && std::strcmp(type, CUSTOM_DATA_TYPE_CHUNK) != 0)
+        {
+            return carla_stderr2("CarlaPluginNative::setCustomData(\"%s\", \"%s\", \"%s\", %s) - type is invalid",
+                                 type, key, value, bool2str(sendGui));
+        }
 
         if (std::strcmp(type, CUSTOM_DATA_TYPE_CHUNK) == 0)
         {
@@ -1061,7 +1068,7 @@ public:
         CARLA_SAFE_ASSERT_RETURN(fHandle != nullptr,);
         carla_debug("CarlaPluginNative::reload() - start");
 
-        const EngineProcessMode processMode(pData->engine->getProccessMode());
+        const EngineProcessMode processMode = pData->engine->getProccessMode();
 
         // Safely disable plugin for reload
         const ScopedDisabler sd(this);
@@ -1426,6 +1433,8 @@ public:
             pData->hints |= PLUGIN_NEEDS_FIXED_BUFFERS;
         if (fDescriptor->hints & NATIVE_PLUGIN_NEEDS_UI_MAIN_THREAD)
             pData->hints |= PLUGIN_NEEDS_UI_MAIN_THREAD;
+        if (fDescriptor->hints & NATIVE_PLUGIN_NEEDS_UI_OPEN_SAVE)
+            pData->hints |= PLUGIN_HAS_CUSTOM_UI_USING_FILE_OPEN;
         if (fDescriptor->hints & NATIVE_PLUGIN_USES_MULTI_PROGS)
             pData->hints |= PLUGIN_USES_MULTI_PROGS;
         if (fDescriptor->hints & NATIVE_PLUGIN_HAS_INLINE_DISPLAY)
@@ -1542,9 +1551,9 @@ public:
             {
                 pData->param.data[j].hints |= PARAMETER_IS_ENABLED;
 
-                if (paramInfo->hints & NATIVE_PARAMETER_IS_AUTOMABLE)
+                if (paramInfo->hints & NATIVE_PARAMETER_IS_AUTOMATABLE)
                 {
-                    pData->param.data[j].hints |= PARAMETER_IS_AUTOMABLE;
+                    pData->param.data[j].hints |= PARAMETER_IS_AUTOMATABLE;
                     pData->param.data[j].hints |= PARAMETER_CAN_BE_CV_CONTROLLED;
                 }
             }
@@ -1983,7 +1992,7 @@ public:
 
                             ctrlEvent.handled = true;
                             value = pData->param.getFinalUnnormalizedValue(k, ctrlEvent.normalizedValue);
-                            setParameterValueRT(k, value, true);
+                            setParameterValueRT(k, value, event.time, true);
                             continue;
                         }
 
@@ -2038,12 +2047,12 @@ public:
                                 continue;
                             if (pData->param.data[k].type != PARAMETER_INPUT)
                                 continue;
-                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMABLE) == 0)
+                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMATABLE) == 0)
                                 continue;
 
                             ctrlEvent.handled = true;
                             value = pData->param.getFinalUnnormalizedValue(k, ctrlEvent.normalizedValue);
-                            setParameterValueRT(k, value, true);
+                            setParameterValueRT(k, value, event.time, true);
                         }
 
                         if ((pData->options & PLUGIN_OPTION_SEND_CONTROL_CHANGES) != 0 && ctrlEvent.param < MAX_MIDI_VALUE)
@@ -2057,7 +2066,7 @@ public:
                             nativeEvent.time    = isSampleAccurate ? startTime : eventTime;
                             nativeEvent.data[0] = uint8_t(MIDI_STATUS_CONTROL_CHANGE | (event.channel & MIDI_CHANNEL_BIT));
                             nativeEvent.data[1] = uint8_t(ctrlEvent.param);
-                            nativeEvent.data[2] = uint8_t(ctrlEvent.normalizedValue*127.0f);
+                            nativeEvent.data[2] = uint8_t(ctrlEvent.normalizedValue*127.0f + 0.5f);
                             nativeEvent.size    = 3;
                         }
 
@@ -2374,7 +2383,8 @@ public:
             const bool doBalance = (pData->hints & PLUGIN_CAN_BALANCE) != 0 && ! (carla_isEqual(pData->postProc.balanceLeft, -1.0f) && carla_isEqual(pData->postProc.balanceRight, 1.0f));
 
             bool isPair;
-            float bufValue, oldBufLeft[doBalance ? frames : 1];
+            float bufValue;
+            float* const oldBufLeft = pData->postProc.extraBuffer;
 
             for (; i < pData->audioOut.count; ++i)
             {
@@ -2483,18 +2493,20 @@ public:
             fAudioAndCvOutBuffers[i] = new float[newBufferSize];
         }
 
-        if (fCurBufferSize == newBufferSize)
-            return;
-
-        fCurBufferSize = newBufferSize;
-
-        if (fDescriptor != nullptr && fDescriptor->dispatcher != nullptr)
+        if (fCurBufferSize != newBufferSize)
         {
-            fDescriptor->dispatcher(fHandle, NATIVE_PLUGIN_OPCODE_BUFFER_SIZE_CHANGED, 0, static_cast<intptr_t>(newBufferSize), nullptr, 0.0f);
+            fCurBufferSize = newBufferSize;
 
-            if (fHandle2 != nullptr)
-                fDescriptor->dispatcher(fHandle2, NATIVE_PLUGIN_OPCODE_BUFFER_SIZE_CHANGED, 0, static_cast<intptr_t>(newBufferSize), nullptr, 0.0f);
+            if (fDescriptor != nullptr && fDescriptor->dispatcher != nullptr)
+            {
+                fDescriptor->dispatcher(fHandle, NATIVE_PLUGIN_OPCODE_BUFFER_SIZE_CHANGED, 0, static_cast<intptr_t>(newBufferSize), nullptr, 0.0f);
+
+                if (fHandle2 != nullptr)
+                    fDescriptor->dispatcher(fHandle2, NATIVE_PLUGIN_OPCODE_BUFFER_SIZE_CHANGED, 0, static_cast<intptr_t>(newBufferSize), nullptr, 0.0f);
+            }
         }
+
+        CarlaPlugin::bufferSizeChanged(newBufferSize);
     }
 
     void sampleRateChanged(const double newSampleRate) override

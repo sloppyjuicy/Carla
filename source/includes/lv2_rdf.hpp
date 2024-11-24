@@ -1,6 +1,6 @@
 /*
  * Custom types to store LV2 information
- * Copyright (C) 2011-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2022 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -96,6 +96,7 @@ typedef uint32_t LV2_Property;
 #define LV2_PORT_UNIT_PC                 22
 #define LV2_PORT_UNIT_S                  23
 #define LV2_PORT_UNIT_SEMITONE           24
+#define LV2_PORT_UNIT_VOLTS              25
 
 #define LV2_IS_PORT_UNIT_BAR(x)          ((x) == LV2_PORT_UNIT_BAR)
 #define LV2_IS_PORT_UNIT_BEAT(x)         ((x) == LV2_PORT_UNIT_BEAT)
@@ -121,6 +122,7 @@ typedef uint32_t LV2_Property;
 #define LV2_IS_PORT_UNIT_PC(x)           ((x) == LV2_PORT_UNIT_PC)
 #define LV2_IS_PORT_UNIT_S(x)            ((x) == LV2_PORT_UNIT_S)
 #define LV2_IS_PORT_UNIT_SEMITONE(x)     ((x) == LV2_PORT_UNIT_SEMITONE)
+#define LV2_IS_PORT_UNIT_VOLTS(x)        ((x) == LV2_PORT_UNIT_VOLTS)
 
 // Port Types
 #define LV2_PORT_INPUT                   0x001
@@ -168,7 +170,8 @@ typedef uint32_t LV2_Property;
 #define LV2_PORT_NOT_AUTOMATIC           0x0800
 #define LV2_PORT_NOT_ON_GUI              0x1000
 #define LV2_PORT_TRIGGER                 0x2000
-#define LV2_PORT_NON_AUTOMABLE           0x4000
+#define LV2_PORT_NON_AUTOMATABLE         0x4000
+#define LV2_PORT_SIDECHAIN               0x8000
 
 #define LV2_IS_PORT_OPTIONAL(x)          ((x) & LV2_PORT_OPTIONAL)
 #define LV2_IS_PORT_ENUMERATION(x)       ((x) & LV2_PORT_ENUMERATION)
@@ -184,7 +187,8 @@ typedef uint32_t LV2_Property;
 #define LV2_IS_PORT_NOT_AUTOMATIC(x)     ((x) & LV2_PORT_NOT_AUTOMATIC)
 #define LV2_IS_PORT_NOT_ON_GUI(x)        ((x) & LV2_PORT_NOT_ON_GUI)
 #define LV2_IS_PORT_TRIGGER(x)           ((x) & LV2_PORT_TRIGGER)
-#define LV2_IS_PORT_NON_AUTOMABLE(x)     ((x) & LV2_PORT_NON_AUTOMABLE)
+#define LV2_IS_PORT_NON_AUTOMATABLE(x)   ((x) & LV2_PORT_NON_AUTOMATABLE)
+#define LV2_IS_PORT_SIDECHAIN(x)         ((x) & LV2_PORT_SIDECHAIN)
 
 // Port Designation
 #define LV2_PORT_DESIGNATION_CONTROL                 1
@@ -376,7 +380,7 @@ struct LV2_RDF_PortUnit {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(LV2_RDF_PortUnit)
+    CARLA_DECLARE_NON_COPYABLE(LV2_RDF_PortUnit)
 };
 
 // Port Scale Point
@@ -397,7 +401,7 @@ struct LV2_RDF_PortScalePoint {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(LV2_RDF_PortScalePoint)
+    CARLA_DECLARE_NON_COPYABLE(LV2_RDF_PortScalePoint)
 };
 
 // Port
@@ -463,7 +467,7 @@ struct LV2_RDF_Port {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(LV2_RDF_Port)
+    CARLA_DECLARE_NON_COPYABLE(LV2_RDF_Port)
 };
 
 // Port
@@ -491,7 +495,7 @@ struct LV2_RDF_PortGroup {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(LV2_RDF_PortGroup)
+    CARLA_DECLARE_NON_COPYABLE(LV2_RDF_PortGroup)
 };
 
 // Parameter
@@ -566,7 +570,7 @@ struct LV2_RDF_Parameter {
         other.Unit.Symbol = nullptr;
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(LV2_RDF_Parameter)
+    CARLA_DECLARE_NON_COPYABLE(LV2_RDF_Parameter)
 };
 
 // Preset
@@ -592,7 +596,7 @@ struct LV2_RDF_Preset {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(LV2_RDF_Preset)
+    CARLA_DECLARE_NON_COPYABLE(LV2_RDF_Preset)
 };
 
 // Feature
@@ -613,7 +617,7 @@ struct LV2_RDF_Feature {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(LV2_RDF_Feature)
+    CARLA_DECLARE_NON_COPYABLE(LV2_RDF_Feature)
 };
 
 // Port Notification
@@ -636,7 +640,7 @@ struct LV2_RDF_UI_PortNotification {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(LV2_RDF_UI_PortNotification)
+    CARLA_DECLARE_NON_COPYABLE(LV2_RDF_UI_PortNotification)
 };
 
 // UI
@@ -709,7 +713,7 @@ struct LV2_RDF_UI {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(LV2_RDF_UI)
+    CARLA_DECLARE_NON_COPYABLE(LV2_RDF_UI)
 };
 
 // Plugin Descriptor
@@ -847,7 +851,7 @@ struct LV2_RDF_Descriptor {
         }
     }
 
-    CARLA_DECLARE_NON_COPY_STRUCT(LV2_RDF_Descriptor)
+    CARLA_DECLARE_NON_COPYABLE(LV2_RDF_Descriptor)
 };
 
 #endif // LV2_RDF_HPP_INCLUDED

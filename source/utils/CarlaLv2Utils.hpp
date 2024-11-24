@@ -1,6 +1,6 @@
 /*
  * Carla LV2 utils
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -72,6 +72,8 @@
 #include "lv2/lv2_programs.h"
 #include "lv2/lv2_rtmempool.h"
 
+#include "lv2/control-input-port-change-request.h"
+
 #include "lilv/lilvmm.hpp"
 #include "sratom/sratom.h"
 #include "lilv/config/lilv_config.h"
@@ -83,7 +85,7 @@
 
 #include "lv2_rdf.hpp"
 
-#ifdef USE_QT
+#if defined(CARLA_UTILS_USE_QT)
 # include <QtCore/QStringList>
 #else
 # include "water/text/StringArray.h"
@@ -113,8 +115,9 @@ typedef std::map<double,const LilvScalePoint*> LilvScalePointMap;
 #define LV2_UI__makeSONameResident LV2_UI_PREFIX "makeSONameResident"
 
 // TODO: update LV2 headers once again
-#define LV2_CORE__Parameter LV2_CORE_PREFIX "Parameter" ///< http://lv2plug.in/ns/lv2core#Parameter
-#define LV2_CORE__enabled   LV2_CORE_PREFIX "enabled"   ///< http://lv2plug.in/ns/lv2core#enabled
+#define LV2_CORE__Parameter   LV2_CORE_PREFIX "Parameter"   ///< http://lv2plug.in/ns/lv2core#Parameter
+#define LV2_CORE__enabled     LV2_CORE_PREFIX "enabled"     ///< http://lv2plug.in/ns/lv2core#enabled
+#define LV2_CORE__isSideChain LV2_CORE_PREFIX "isSideChain" ///< http://lv2plug.in/ns/lv2core#isSideChain
 
 // --------------------------------------------------------------------------------------------------------------------
 // Custom Atom types
@@ -213,6 +216,7 @@ public:
     Lilv::Node pprop_optional;
     Lilv::Node pprop_enumeration;
     Lilv::Node pprop_integer;
+    Lilv::Node pprop_isSideChain;
     Lilv::Node pprop_sampleRate;
     Lilv::Node pprop_toggled;
     Lilv::Node pprop_artifacts;
@@ -224,7 +228,7 @@ public:
     Lilv::Node pprop_notAutomatic;
     Lilv::Node pprop_notOnGUI;
     Lilv::Node pprop_trigger;
-    Lilv::Node pprop_nonAutomable;
+    Lilv::Node pprop_nonAutomatable;
 
     // Unit Hints
     Lilv::Node unit_name;
@@ -254,6 +258,7 @@ public:
     Lilv::Node patch_readable;
     Lilv::Node patch_writable;
     Lilv::Node pg_group;
+    Lilv::Node pg_sideChainOf;
     Lilv::Node preset_preset;
     Lilv::Node state_state;
 
@@ -270,6 +275,7 @@ public:
 
     // Port Data Types
     Lilv::Node midi_binding;
+    Lilv::Node midi_ctlrNumber;
     Lilv::Node midi_event;
     Lilv::Node patch_message;
     Lilv::Node time_position;
@@ -353,6 +359,7 @@ public:
           pprop_optional     (new_uri(LV2_CORE__connectionOptional)),
           pprop_enumeration  (new_uri(LV2_CORE__enumeration)),
           pprop_integer      (new_uri(LV2_CORE__integer)),
+          pprop_isSideChain  (new_uri(LV2_CORE__isSideChain)),
           pprop_sampleRate   (new_uri(LV2_CORE__sampleRate)),
           pprop_toggled      (new_uri(LV2_CORE__toggled)),
           pprop_artifacts    (new_uri(LV2_PORT_PROPS__causesArtifacts)),
@@ -364,7 +371,7 @@ public:
           pprop_notAutomatic (new_uri(LV2_PORT_PROPS__notAutomatic)),
           pprop_notOnGUI     (new_uri(LV2_PORT_PROPS__notOnGUI)),
           pprop_trigger      (new_uri(LV2_PORT_PROPS__trigger)),
-          pprop_nonAutomable (new_uri(LV2_KXSTUDIO_PROPERTIES__NonAutomable)),
+          pprop_nonAutomatable (new_uri(LV2_KXSTUDIO_PROPERTIES__NonAutomatable)),
 
           unit_name          (new_uri(LV2_UNITS__name)),
           unit_render        (new_uri(LV2_UNITS__render)),
@@ -391,6 +398,7 @@ public:
           patch_readable     (new_uri(LV2_PATCH__readable)),
           patch_writable     (new_uri(LV2_PATCH__writable)),
           pg_group           (new_uri(LV2_PORT_GROUPS__group)),
+          pg_sideChainOf     (new_uri(LV2_PORT_GROUPS__sideChainOf)),
           preset_preset      (new_uri(LV2_PRESETS__Preset)),
           state_state        (new_uri(LV2_STATE__state)),
 
@@ -406,6 +414,7 @@ public:
           rz_minSize         (new_uri(LV2_RESIZE_PORT__minimumSize)),
 
           midi_binding       (new_uri(LV2_MIDI__binding)),
+          midi_ctlrNumber    (new_uri(LV2_MIDI__controllerNumber)),
           midi_event         (new_uri(LV2_MIDI__MidiEvent)),
           patch_message      (new_uri(LV2_PATCH__Message)),
           time_position      (new_uri(LV2_TIME__Position)),
@@ -545,7 +554,7 @@ public:
     }
 
     CARLA_PREVENT_VIRTUAL_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_STRUCT(Lv2WorldClass)
+    CARLA_DECLARE_NON_COPYABLE(Lv2WorldClass)
 };
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -965,9 +974,6 @@ public:
             handleParameterValueChanged(i, curValue);
         }
 
-        if (frames == 0)
-            return false;
-
         // init event out data
         if (fPorts.numMidiOuts > 0 || fPorts.hasUI)
         {
@@ -987,6 +993,9 @@ public:
                 seq->body.pad  = 0;
             }
         }
+
+        if (frames == 0)
+            return false;
 
         return true;
     }
@@ -1507,7 +1516,7 @@ protected:
             }
         }
 
-        CARLA_DECLARE_NON_COPY_STRUCT(Ports);
+        CARLA_DECLARE_NON_COPYABLE(Ports);
     } fPorts;
 
     // Rest of host<->plugin support
@@ -1664,7 +1673,7 @@ private:
 
     // ----------------------------------------------------------------------------------------------------------------
 
-    CARLA_DECLARE_NON_COPY_STRUCT(Lv2PluginBaseClass)
+    CARLA_DECLARE_NON_COPYABLE(Lv2PluginBaseClass)
 };
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -1815,7 +1824,7 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
 
             if (replaceNode.is_uri())
             {
-#ifdef USE_QT
+               #if defined(CARLA_UTILS_USE_QT)
                 const QString replaceURI(replaceNode.as_uri());
 
                 if (replaceURI.startsWith("urn:"))
@@ -1828,7 +1837,7 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
                     if (ok && uniqueId != 0)
                         rdfDescriptor->UniqueID = uniqueId;
                 }
-#else
+               #else
                 const water::String replaceURI(replaceNode.as_uri());
 
                 if (replaceURI.startsWith("urn:"))
@@ -1838,7 +1847,7 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
                     if (uniqueId > 0)
                         rdfDescriptor->UniqueID = static_cast<ulong>(uniqueId);
                 }
-#endif
+               #endif
             }
         }
 
@@ -1856,6 +1865,8 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
         for (uint i = 0; i < numPorts; ++i)
         {
             Lilv::Port lilvPort(lilvPlugin.get_port_by_index(i));
+            CARLA_SAFE_ASSERT_CONTINUE(lilvPort.me != nullptr);
+
             LV2_RDF_Port* const rdfPort(&rdfDescriptor->Ports[i]);
 
             // --------------------------------------------------------------------------------------------------------
@@ -1997,6 +2008,8 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
                     rdfPort->Properties |= LV2_PORT_ENUMERATION;
                 if (lilvPort.has_property(lv2World.pprop_integer))
                     rdfPort->Properties |= LV2_PORT_INTEGER;
+                if (lilvPort.has_property(lv2World.pprop_isSideChain))
+                    rdfPort->Properties |= LV2_PORT_SIDECHAIN;
                 if (lilvPort.has_property(lv2World.pprop_sampleRate))
                     rdfPort->Properties |= LV2_PORT_SAMPLE_RATE;
                 if (lilvPort.has_property(lv2World.pprop_toggled))
@@ -2020,11 +2033,23 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
                     rdfPort->Properties |= LV2_PORT_NOT_ON_GUI;
                 if (lilvPort.has_property(lv2World.pprop_trigger))
                     rdfPort->Properties |= LV2_PORT_TRIGGER;
-                if (lilvPort.has_property(lv2World.pprop_nonAutomable))
-                    rdfPort->Properties |= LV2_PORT_NON_AUTOMABLE;
+                if (lilvPort.has_property(lv2World.pprop_nonAutomatable))
+                    rdfPort->Properties |= LV2_PORT_NON_AUTOMATABLE;
 
                 if (lilvPort.has_property(lv2World.reportsLatency))
                     rdfPort->Designation = LV2_PORT_DESIGNATION_LATENCY;
+
+                // check if sidechain (some plugins use sidechain groups instead of isSidechain)
+                if (LilvNode* const portGroupNode = lilvPort.get(lv2World.pg_group.me))
+                {
+                    if (LilvNode* const portSideChainOfNode = lilv_world_get(lv2World.me, portGroupNode,
+                                                                             lv2World.pg_sideChainOf.me, nullptr))
+                    {
+                        rdfPort->Properties |= LV2_PORT_SIDECHAIN;
+                        lilv_node_free(portSideChainOfNode);
+                    }
+                    lilv_node_free(portGroupNode);
+                }
 
                 // no port properties set, check if using old/invalid ones
                 if (rdfPort->Properties == 0x0)
@@ -2140,18 +2165,41 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
 
             if (LilvNode* const bindingNode = lilv_port_get(lilvPort.parent, lilvPort.me, lv2World.midi_binding.me))
             {
-                if (const char* const bindingAsString = lilv_node_as_string(bindingNode))
+                if (lilv_node_is_string(bindingNode))
                 {
-                    if (std::strncmp(bindingAsString, "B0", 2) == 0 && std::strlen(bindingAsString) == 6)
+                    if (const char* const bindingAsString = lilv_node_as_string(bindingNode))
                     {
-                        const char binding[3] = { bindingAsString[2], bindingAsString[3], '\0' };
-                        const long number = std::strtol(binding, nullptr, 16);
-
-                        if (number >= 0 && number <= 0xff)
+                        if (std::strncmp(bindingAsString, "B0", 2) == 0 && std::strlen(bindingAsString) == 6)
                         {
-                            rdfPort->MidiMap.Type = LV2_PORT_MIDI_MAP_CC;
-                            rdfPort->MidiMap.Number = static_cast<uint32_t>(number);
+                            const char binding[3] = { bindingAsString[2], bindingAsString[3], '\0' };
+                            const long number = std::strtol(binding, nullptr, 16);
+
+                            if (number >= 0 && number <= 0xff)
+                            {
+                                rdfPort->MidiMap.Type = LV2_PORT_MIDI_MAP_CC;
+                                rdfPort->MidiMap.Number = static_cast<uint32_t>(number);
+                            }
                         }
+                    }
+                }
+                else
+                {
+                    if (lilv_node_is_blank(bindingNode))
+                    {
+                        Lilv::Nodes ctrlNumNodes(lv2World.find_nodes(bindingNode, lv2World.midi_ctlrNumber, nullptr));
+
+                        if (ctrlNumNodes.size() == 1)
+                        {
+                            const int midiCC = ctrlNumNodes.get_first().as_int();
+
+                            if (midiCC >= 0 && midiCC <= 0xff)
+                            {
+                                rdfPort->MidiMap.Type = LV2_PORT_MIDI_MAP_CC;
+                                rdfPort->MidiMap.Number = static_cast<uint32_t>(midiCC);
+                            }
+                        }
+
+                        lilv_nodes_free(const_cast<LilvNodes*>(ctrlNumNodes.me));
                     }
                 }
 
@@ -2270,6 +2318,8 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
                                 rdfPort->Unit.Unit = LV2_PORT_UNIT_S;
                             else if (std::strcmp(unitUnit, LV2_UNITS__semitone12TET) == 0)
                                 rdfPort->Unit.Unit = LV2_PORT_UNIT_SEMITONE;
+                            else if (std::strcmp(unitUnit, "http://moddevices.com/ns/mod#volts") == 0)
+                                rdfPort->Unit.Unit = LV2_PORT_UNIT_VOLTS;
                             else
                                 carla_stderr("lv2_rdf_new(\"%s\") - got unknown unit '%s'", uri, unitUnit);
                         }
@@ -2582,6 +2632,8 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
                                 rdfParam.Unit.Unit = LV2_PORT_UNIT_S;
                             else if (std::strcmp(unitUnit, LV2_UNITS__semitone12TET) == 0)
                                 rdfParam.Unit.Unit = LV2_PORT_UNIT_SEMITONE;
+                            else if (std::strcmp(unitUnit, "http://moddevices.com/ns/mod#volts") == 0)
+                                rdfParam.Unit.Unit = LV2_PORT_UNIT_VOLTS;
                             else
                                 carla_stderr("lv2_rdf_new(\"%s\") - got unknown unit '%s'", uri, unitUnit);
                         }
@@ -2671,7 +2723,7 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
             }
             // some plugins use rdfs:label, spec was not clear which one to use
             else if (LilvNode* const portGroupLabelNode = lilv_world_get(lv2World.me, portGroupNode,
-                                                                        lv2World.rdfs_label.me, nullptr))
+                                                                         lv2World.rdfs_label.me, nullptr))
             {
                 portGroup.Name = carla_strdup_safe(lilv_node_as_string(portGroupLabelNode));
                 lilv_node_free(portGroupLabelNode);
@@ -2702,7 +2754,7 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
         if (presetNodes.size() > 0)
         {
             // create a list of preset URIs (for sorting and unique-ness)
-#ifdef USE_QT
+           #if defined(CARLA_UTILS_USE_QT)
             QStringList presetListURIs;
 
             LILV_FOREACH(nodes, it, presetNodes)
@@ -2718,7 +2770,7 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
             presetListURIs.sort();
 
             rdfDescriptor->PresetCount = static_cast<uint32_t>(presetListURIs.count());
-#else
+           #else
             water::StringArray presetListURIs;
 
             LILV_FOREACH(nodes, it, presetNodes)
@@ -2734,7 +2786,7 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
             presetListURIs.sortNatural();
 
             rdfDescriptor->PresetCount = static_cast<uint32_t>(presetListURIs.size());
-#endif
+           #endif
 
             // create presets with unique URIs
             rdfDescriptor->Presets = new LV2_RDF_Preset[rdfDescriptor->PresetCount];
@@ -2763,11 +2815,11 @@ const LV2_RDF_Descriptor* lv2_rdf_new(const LV2_URI uri, const bool loadPresets)
 
                 if (presetLabelNodes.size() > 0)
                 {
-#ifdef USE_QT
-                    const int index(presetListURIs.indexOf(QString(presetURI)));
-#else
-                    const int index(presetListURIs.indexOf(water::String(presetURI)));
-#endif
+                   #if defined(CARLA_UTILS_USE_QT)
+                    const int index = presetListURIs.indexOf(QString(presetURI));
+                   #else
+                    const int index = presetListURIs.indexOf(water::String(presetURI));
+                   #endif
                     CARLA_SAFE_ASSERT_CONTINUE(index >= 0 && index < static_cast<int>(rdfDescriptor->PresetCount));
 
                     LV2_RDF_Preset* const rdfPreset(&rdfDescriptor->Presets[index]);
@@ -3133,6 +3185,8 @@ bool is_lv2_feature_supported(const LV2_URI uri) noexcept
     if (std::strcmp(uri, LV2_BUF_SIZE__fixedBlockLength) == 0)
         return true;
     if (std::strcmp(uri, LV2_BUF_SIZE__powerOf2BlockLength) == 0)
+        return true;
+    if (std::strcmp(uri, LV2_CONTROL_INPUT_PORT_CHANGE_REQUEST_URI) == 0)
         return true;
     if (std::strcmp(uri, LV2_CORE__hardRTCapable) == 0)
         return true;

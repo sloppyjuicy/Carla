@@ -1,5 +1,5 @@
 # ![Carla Logo](resources/48x48/carla.png) Carla Plugin Host
-[![Build Status](https://travis-ci.com/falkTX/Carla.png)](https://travis-ci.com/falkTX/Carla)
+[![build](https://github.com/falkTX/Carla/actions/workflows/build.yml/badge.svg)](https://github.com/falkTX/Carla/actions/workflows/build.yml)
 
 What is Carla?
 ---------------
@@ -14,7 +14,7 @@ Features
 * SF2/3 and SFZ sound banks
 * Internal audio and midi file player
 * Automation of plugin parameters via MIDI CC
-* Remote control over OSC
+* Remote control over [OSC](https://opensoundcontrol.stanford.edu/)
 * Rack and Patchbay processing modes, plus Single and Multi-Client if using JACK
 * Native audio drivers (ALSA, DirectSound, CoreAudio, etc) and JACK
 

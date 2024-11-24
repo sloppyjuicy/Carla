@@ -21,14 +21,14 @@ endif
 
 # ---------------------------------------------------------------------------------------------------------------------
 
-BUILD_C_FLAGS   += -I..
-BUILD_CXX_FLAGS += -I.. -I$(CWD)/modules
+BASE_FLAGS      += -DBUILDING_CARLA
+BASE_FLAGS      += -I. -I.. -I../backend -I../includes -I../modules -I../utils
+BUILD_CXX_FLAGS += -I$(CWD)/modules
 
 # ---------------------------------------------------------------------------------------------------------------------
 
 PEDANTIC_FLAGS  = -pedantic -pedantic-errors
-PEDANTIC_FLAGS += -Wall -Wextra -Werror -pipe -DBUILDING_CARLA -DREAL_BUILD
-PEDANTIC_FLAGS += -I. -I../backend -I../includes -I../modules -I../utils
+PEDANTIC_FLAGS += -Wall -Wextra -Werror -pipe
 
 PEDANTIC_FLAGS += -Wabi=98 -Wcast-qual -Wclobbered -Wconversion -Wdisabled-optimization
 PEDANTIC_FLAGS += -Wcast-align -Wcast-qual -Wclobbered -Wconversion -Wdisabled-optimization
@@ -75,7 +75,12 @@ TARGETS = \
 	ansi-pedantic-test_cxx98_run \
 	ansi-pedantic-test_cxx03_run \
 	ansi-pedantic-test_cxx11_run \
-	carla-host-plugin_run
+	carla-host-plugin_run \
+	carla-engine-sdl
+
+ifeq ($(WASM),true)
+TARGETS = carla-engine-sdl$(APP_EXT)
+endif
 
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -125,6 +130,25 @@ $(BINDIR)/carla-host-plugin: carla-host-plugin.c
 
 # ---------------------------------------------------------------------------------------------------------------------
 
+.PHONY: carla-engine-sdl$(APP_EXT)
+carla-engine-sdl$(APP_EXT): $(OBJDIR)/carla-engine-sdl.c.o $(OBJDIR)/carla-engine-sdl-extra.cpp.o
+	$(CC) $^ \
+		$(CWD)/../build/plugin/Release/carla-host-plugin.cpp.o \
+		$(MODULEDIR)/carla_engine.a \
+		$(MODULEDIR)/carla_plugin.a \
+		$(MODULEDIR)/lilv.a \
+		$(MODULEDIR)/native-plugins.a \
+		$(MODULEDIR)/sfzero.a \
+		$(MODULEDIR)/audio_decoder.a \
+		$(MODULEDIR)/rtmempool.a \
+		$(MODULEDIR)/water.a \
+		$(MODULEDIR)/ysfx.a \
+		$(MODULEDIR)/zita-resampler.a \
+		$(SDL_LIBS) --preload-file foolme.mp3 -sALLOW_MEMORY_GROWTH \
+		-o $@
+
+# ---------------------------------------------------------------------------------------------------------------------
+
 clean:
 	rm -f $(BINDIR)/ansi-pedantic-test_* $(BINDIR)/carla-host-plugin
 
@@ -136,11 +160,11 @@ debug:
 $(OBJDIR)/%.c.o: %.c
 	-@mkdir -p $(OBJDIR)
 	@echo "Compiling $<"
-	@$(CC) $< $(BUILD_C_FLAGS) -c -o $@
+	$(SILENT)$(CC) $< $(BUILD_C_FLAGS) -c -o $@
 
 $(OBJDIR)/%.cpp.o: %.cpp
 	-@mkdir -p $(OBJDIR)
 	@echo "Compiling $<"
-	@$(CXX) $< $(BUILD_CXX_FLAGS) -c -o $@
+	$(SILENT)$(CXX) $< $(BUILD_CXX_FLAGS) -c -o $@
 
 # ---------------------------------------------------------------------------------------------------------------------

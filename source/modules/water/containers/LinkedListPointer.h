@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -80,23 +80,6 @@ public:
         item = newItem;
         return *this;
     }
-
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    LinkedListPointer (LinkedListPointer&& other) noexcept
-        : item (other.item)
-    {
-        other.item = nullptr;
-    }
-
-    LinkedListPointer& operator= (LinkedListPointer&& other) noexcept
-    {
-        wassert (this != &other); // hopefully the compiler should make this situation impossible!
-
-        item = other.item;
-        other.item = nullptr;
-        return *this;
-    }
-   #endif
 
     //==============================================================================
     /** Returns the item which this pointer points to. */
@@ -357,14 +340,14 @@ public:
     private:
         LinkedListPointer* endOfList;
 
-        CARLA_DECLARE_NON_COPY_CLASS (Appender)
+        CARLA_DECLARE_NON_COPYABLE (Appender)
     };
 
 private:
     //==============================================================================
     ObjectType* item;
 
-    CARLA_DECLARE_NON_COPY_CLASS (LinkedListPointer)
+    CARLA_DECLARE_NON_COPYABLE (LinkedListPointer)
 };
 
 }

@@ -1,6 +1,6 @@
 /*
  * XY Controller UI, taken from Cadence
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2022 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -63,7 +63,7 @@ protected:
 
         static NativeParameter param;
 
-        int hints = NATIVE_PARAMETER_IS_ENABLED|NATIVE_PARAMETER_IS_AUTOMABLE;
+        int hints = NATIVE_PARAMETER_IS_ENABLED|NATIVE_PARAMETER_IS_AUTOMATABLE;
 
         param.name = nullptr;
         param.unit = "%";
@@ -168,6 +168,7 @@ protected:
             writeMidiEvent(&midiEvents[i]);
     }
 
+#ifndef CARLA_OS_WASM
     // -------------------------------------------------------------------
     // Pipe Server calls
 
@@ -242,6 +243,7 @@ protected:
 
         return false;
     }
+#endif
 
 private:
     float params[kParamCount];
@@ -275,10 +277,10 @@ static const NativePluginDescriptor notesDesc = {
 
 // -----------------------------------------------------------------------
 
-CARLA_EXPORT
+CARLA_API_EXPORT
 void carla_register_native_plugin_xycontroller();
 
-CARLA_EXPORT
+CARLA_API_EXPORT
 void carla_register_native_plugin_xycontroller()
 {
     carla_register_native_plugin(&notesDesc);

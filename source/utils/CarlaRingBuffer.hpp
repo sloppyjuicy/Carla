@@ -1,6 +1,6 @@
 /*
  * Carla Ring Buffer
- * Copyright (C) 2013-2018 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2013-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -19,8 +19,9 @@
 #define CARLA_RING_BUFFER_HPP_INCLUDED
 
 #include "CarlaMathUtils.hpp"
+#include "CarlaMemUtils.hpp"
 
-// -----------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 // Buffer structs
 
 /*
@@ -62,35 +63,27 @@ struct HeapBuffer {
 };
 
 struct SmallStackBuffer {
-    static const uint32_t size = 4096;
+    static constexpr const uint32_t size = 4096;
     uint32_t head, tail, wrtn;
     bool     invalidateCommit;
     uint8_t  buf[size];
 };
 
 struct BigStackBuffer {
-    static const uint32_t size = 16384;
+    static constexpr const uint32_t size = 16384;
     uint32_t head, tail, wrtn;
     bool     invalidateCommit;
     uint8_t  buf[size];
 };
 
 struct HugeStackBuffer {
-    static const uint32_t size = 65536;
+    static constexpr const uint32_t size = 65536;
     uint32_t head, tail, wrtn;
     bool     invalidateCommit;
     uint8_t  buf[size];
 };
 
-#ifdef CARLA_PROPER_CPP11_SUPPORT
-# define HeapBuffer_INIT  {0, 0, 0, 0, false, nullptr}
-# define StackBuffer_INIT {0, 0, 0, false, {0}}
-#else
-# define HeapBuffer_INIT
-# define StackBuffer_INIT
-#endif
-
-// -----------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 // CarlaRingBufferControl templated class
 
 template <class BufferStruct>
@@ -104,21 +97,31 @@ public:
 
     virtual ~CarlaRingBufferControl() noexcept {}
 
-    // -------------------------------------------------------------------
+    // ----------------------------------------------------------------------------------------------------------------
 
     void clearData() noexcept
     {
         CARLA_SAFE_ASSERT_RETURN(fBuffer != nullptr,);
 
-        fBuffer->head = 0;
-        fBuffer->tail = 0;
-        fBuffer->wrtn = 0;
+        fBuffer->head = fBuffer->tail = fBuffer->wrtn = 0;
         fBuffer->invalidateCommit = false;
 
         carla_zeroBytes(fBuffer->buf, fBuffer->size);
+
+        fErrorReading = fErrorWriting = false;
     }
 
-    // -------------------------------------------------------------------
+    void flush() noexcept
+    {
+        CARLA_SAFE_ASSERT_RETURN(fBuffer != nullptr,);
+
+        fBuffer->head = fBuffer->tail = fBuffer->wrtn = 0;
+        fBuffer->invalidateCommit = false;
+
+        fErrorWriting = false;
+    }
+
+    // ----------------------------------------------------------------------------------------------------------------
 
     bool commitWrite() noexcept
     {
@@ -146,19 +149,33 @@ public:
     {
         CARLA_SAFE_ASSERT_RETURN(fBuffer != nullptr, false);
 
-        return (fBuffer->buf == nullptr || fBuffer->head == fBuffer->tail);
+        return fBuffer->buf == nullptr || fBuffer->head == fBuffer->tail;
     }
 
-    uint32_t getAvailableDataSize() const noexcept
+    uint32_t getSize() const noexcept
+    {
+        return fBuffer != nullptr ? fBuffer->size : 0;
+    }
+
+    uint32_t getReadableDataSize() const noexcept
     {
         CARLA_SAFE_ASSERT_RETURN(fBuffer != nullptr, 0);
 
-        const uint32_t wrap((fBuffer->tail > fBuffer->wrtn) ? 0 : fBuffer->size);
+        const uint32_t wrap = fBuffer->head >= fBuffer->tail ? 0 : fBuffer->size;
 
-        return wrap + fBuffer->tail - fBuffer->wrtn;
+        return wrap + fBuffer->head - fBuffer->tail;
     }
 
-    // -------------------------------------------------------------------
+    uint32_t getWritableDataSize() const noexcept
+    {
+        CARLA_SAFE_ASSERT_RETURN(fBuffer != nullptr, 0);
+
+        const uint32_t wrap = fBuffer->tail > fBuffer->wrtn ? 0 : fBuffer->size;
+
+        return wrap + fBuffer->tail - fBuffer->wrtn - 1;
+    }
+
+    // ----------------------------------------------------------------------------------------------------------------
 
     bool readBool() noexcept
     {
@@ -236,7 +253,43 @@ public:
             std::memset(&type, 0, sizeof(T));
     }
 
-    // -------------------------------------------------------------------
+    // ----------------------------------------------------------------------------------------------------------------
+
+    void skipRead(const uint32_t size) noexcept
+    {
+        CARLA_SAFE_ASSERT_RETURN(fBuffer != nullptr,);
+        CARLA_SAFE_ASSERT_RETURN(size > 0,);
+        CARLA_SAFE_ASSERT_RETURN(size < fBuffer->size,);
+
+        // empty
+        if (fBuffer->head == fBuffer->tail)
+            return;
+
+        const uint32_t head = fBuffer->head;
+        const uint32_t tail = fBuffer->tail;
+        const uint32_t wrap = head > tail ? 0 : fBuffer->size;
+
+        if (size > wrap + head - tail)
+        {
+            if (! fErrorReading)
+            {
+                fErrorReading = true;
+                carla_stderr2("CarlaRingBuffer::skipRead(%u): failed, not enough space", size);
+            }
+            return;
+        }
+
+        uint32_t readto = tail + size;
+
+        if (readto >= fBuffer->size)
+            readto -= fBuffer->size;
+
+        fBuffer->tail = readto;
+        fErrorReading = false;
+        return;
+    }
+
+    // ----------------------------------------------------------------------------------------------------------------
 
     bool writeBool(const bool value) noexcept
     {
@@ -302,7 +355,7 @@ public:
         return tryWrite(&type, sizeof(T));
     }
 
-    // -------------------------------------------------------------------
+    // ----------------------------------------------------------------------------------------------------------------
 
 protected:
     void setRingBuffer(BufferStruct* const ringBuf, const bool resetBuffer) noexcept
@@ -315,19 +368,19 @@ protected:
             clearData();
     }
 
-    // -------------------------------------------------------------------
+    // ----------------------------------------------------------------------------------------------------------------
 
     bool tryRead(void* const buf, const uint32_t size) noexcept
     {
         CARLA_SAFE_ASSERT_RETURN(fBuffer != nullptr, false);
-        #if defined(__clang__)
-        # pragma clang diagnostic push
-        # pragma clang diagnostic ignored "-Wtautological-pointer-compare"
-        #endif
+       #if defined(__clang__)
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Wtautological-pointer-compare"
+       #endif
         CARLA_SAFE_ASSERT_RETURN(fBuffer->buf != nullptr, false);
-        #if defined(__clang__)
-        # pragma clang diagnostic pop
-        #endif
+       #if defined(__clang__)
+        #pragma clang diagnostic pop
+       #endif
         CARLA_SAFE_ASSERT_RETURN(buf != nullptr, false);
         CARLA_SAFE_ASSERT_RETURN(size > 0, false);
         CARLA_SAFE_ASSERT_RETURN(size < fBuffer->size, false);
@@ -336,23 +389,23 @@ protected:
         if (fBuffer->head == fBuffer->tail)
             return false;
 
-        uint8_t* const bytebuf(static_cast<uint8_t*>(buf));
+        uint8_t* const bytebuf = static_cast<uint8_t*>(buf);
 
-        const uint32_t head(fBuffer->head);
-        const uint32_t tail(fBuffer->tail);
-        const uint32_t wrap((head > tail) ? 0 : fBuffer->size);
+        const uint32_t head = fBuffer->head;
+        const uint32_t tail = fBuffer->tail;
+        const uint32_t wrap = head > tail ? 0 : fBuffer->size;
 
         if (size > wrap + head - tail)
         {
             if (! fErrorReading)
             {
                 fErrorReading = true;
-                carla_stderr2("CarlaRingBuffer::tryRead(%p, " P_SIZE "): failed, not enough space", buf, size);
+                carla_stderr2("CarlaRingBuffer::tryRead(%p, %u): failed, not enough space", buf, size);
             }
             return false;
         }
 
-        uint32_t readto(tail + size);
+        uint32_t readto = tail + size;
 
         if (readto > fBuffer->size)
         {
@@ -364,7 +417,7 @@ protected:
             }
             else
             {
-                const uint32_t firstpart(fBuffer->size - tail);
+                const uint32_t firstpart = fBuffer->size - tail;
                 std::memcpy(bytebuf, fBuffer->buf + tail, firstpart);
                 std::memcpy(bytebuf + firstpart, fBuffer->buf, readto);
             }
@@ -389,24 +442,24 @@ protected:
         CARLA_SAFE_ASSERT_RETURN(size > 0, false);
         CARLA_SAFE_ASSERT_UINT2_RETURN(size < fBuffer->size, size, fBuffer->size, false);
 
-        const uint8_t* const bytebuf(static_cast<const uint8_t*>(buf));
+        const uint8_t* const bytebuf = static_cast<const uint8_t*>(buf);
 
-        const uint32_t tail(fBuffer->tail);
-        const uint32_t wrtn(fBuffer->wrtn);
-        const uint32_t wrap((tail > wrtn) ? 0 : fBuffer->size);
+        const uint32_t tail = fBuffer->tail;
+        const uint32_t wrtn = fBuffer->wrtn;
+        const uint32_t wrap = tail > wrtn ? 0 : fBuffer->size;
 
         if (size >= wrap + tail - wrtn)
         {
             if (! fErrorWriting)
             {
                 fErrorWriting = true;
-                carla_stderr2("CarlaRingBuffer::tryWrite(%p, " P_SIZE "): failed, not enough space", buf, size);
+                carla_stderr2("CarlaRingBuffer::tryWrite(%p, %u): failed, not enough space", buf, size);
             }
             fBuffer->invalidateCommit = true;
             return false;
         }
 
-        uint32_t writeto(wrtn + size);
+        uint32_t writeto = wrtn + size;
 
         if (writeto > fBuffer->size)
         {
@@ -418,7 +471,7 @@ protected:
             }
             else
             {
-                const uint32_t firstpart(fBuffer->size - wrtn);
+                const uint32_t firstpart = fBuffer->size - wrtn;
                 std::memcpy(fBuffer->buf + wrtn, bytebuf, firstpart);
                 std::memcpy(fBuffer->buf, bytebuf + firstpart, writeto);
             }
@@ -443,7 +496,7 @@ private:
     bool fErrorWriting;
 
     CARLA_PREVENT_VIRTUAL_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaRingBufferControl)
+    CARLA_DECLARE_NON_COPYABLE(CarlaRingBufferControl)
 };
 
 template <class BufferStruct>
@@ -458,17 +511,14 @@ inline bool CarlaRingBufferControl<HeapBuffer>::isDataAvailableForReading() cons
 	return (fBuffer != nullptr && fBuffer->buf != nullptr && fBuffer->head != fBuffer->tail);
 }
 
-// -----------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 // CarlaRingBuffer using heap space
 
 class CarlaHeapRingBuffer : public CarlaRingBufferControl<HeapBuffer>
 {
 public:
     CarlaHeapRingBuffer() noexcept
-        : fHeapBuffer(HeapBuffer_INIT)
-    {
-        carla_zeroStruct(fHeapBuffer);
-    }
+        : fHeapBuffer{0, 0, 0, 0, false, nullptr} {}
 
     ~CarlaHeapRingBuffer() noexcept override
     {
@@ -479,12 +529,12 @@ public:
         fHeapBuffer.buf = nullptr;
     }
 
-    void createBuffer(const uint32_t size) noexcept
+    void createBuffer(const uint32_t size, const bool mlock) noexcept
     {
         CARLA_SAFE_ASSERT_RETURN(fHeapBuffer.buf == nullptr,);
         CARLA_SAFE_ASSERT_RETURN(size > 0,);
 
-        const uint32_t p2size(carla_nextPowerOf2(size));
+        const uint32_t p2size = carla_nextPowerOf2(size);
 
         try {
             fHeapBuffer.buf = new uint8_t[p2size];
@@ -492,11 +542,18 @@ public:
 
         fHeapBuffer.size = p2size;
         setRingBuffer(&fHeapBuffer, true);
+
+        if (mlock)
+        {
+            carla_mlock(&fHeapBuffer, sizeof(fHeapBuffer));
+            carla_mlock(fHeapBuffer.buf, p2size);
+        }
     }
 
     void deleteBuffer() noexcept
     {
-        CARLA_SAFE_ASSERT_RETURN(fHeapBuffer.buf != nullptr,);
+        if (fHeapBuffer.buf == nullptr)
+            return;
 
         setRingBuffer(nullptr, false);
 
@@ -509,17 +566,17 @@ private:
     HeapBuffer fHeapBuffer;
 
     CARLA_PREVENT_VIRTUAL_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaHeapRingBuffer)
+    CARLA_DECLARE_NON_COPYABLE(CarlaHeapRingBuffer)
 };
 
-// -----------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 // CarlaRingBuffer using small stack space
 
 class CarlaSmallStackRingBuffer : public CarlaRingBufferControl<SmallStackBuffer>
 {
 public:
     CarlaSmallStackRingBuffer() noexcept
-        : fStackBuffer(StackBuffer_INIT)
+        : fStackBuffer{0, 0, 0, false, {}}
     {
         setRingBuffer(&fStackBuffer, true);
     }
@@ -528,9 +585,9 @@ private:
     SmallStackBuffer fStackBuffer;
 
     CARLA_PREVENT_VIRTUAL_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaSmallStackRingBuffer)
+    CARLA_DECLARE_NON_COPYABLE(CarlaSmallStackRingBuffer)
 };
 
-// -----------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
 #endif // CARLA_RING_BUFFER_HPP_INCLUDED

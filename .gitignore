@@ -4,6 +4,7 @@
 .*.kate-swp
 .libmagic-tmp
 .libmagic-tmp.bc
+.cache/
 .kdev4/
 .DS_Store
 
@@ -17,27 +18,31 @@
 *.7z
 *.bz2
 *.a
+*.d
 *.o
 *.dll
 *.dll.def
 *.dmg
 *.dylib
 *.exe
+*.html
+*.js
 *.msi
 *.so
 *.vst
 *.vst3
+*.wasm
 
 # Binary dir
-bin/ansi-pedantic-test_*
-bin/carla
-bin/carla.lv2/carla-bridge-*
-bin/carla-database
-bin/carla-settings
-bin/jack/
-bin/resources/
-bin/styles/
-build/
+/bin/ansi-pedantic-test_*
+/bin/carla
+/bin/carla.lv2/carla-bridge-*
+/bin/carla-database
+/bin/carla-settings
+/bin/jack/
+/bin/resources/
+/bin/styles/
+/build/
 
 # Project files
 *.carxp
@@ -55,6 +60,9 @@ qrc_resources.cpp
 *.pyc
 
 # Qt files
+qt_config.py
+*_ui.hpp
+*_ui.py
 *_rc.cpp
 *_rc.py
 ui_*.hpp
@@ -101,6 +109,7 @@ carla-native-plugin
 carla-rest-server
 zynaddsubfx-ui
 
+compile_commands.json
 stoat-output.png
 
 source/tests/ansi-pedantic-test_*
@@ -140,7 +149,7 @@ bin/resources/widgets
 source/native-plugins/resources/*.py
 
 # Other
-source/frontend/carla_config.py
+source/frontend/pluginlist/jackappdialog
 source/includes/asio/
 source/includes/rewire/
 source/includes/vst2
@@ -177,3 +186,5 @@ data/windows/Carla.lv2/
 data/windows/Carla_*
 
 data/windows/python/
+
+Makefile.user.mk

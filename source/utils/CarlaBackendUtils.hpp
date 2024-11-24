@@ -1,6 +1,6 @@
 /*
  * Carla Backend utils
- * Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2024 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -19,6 +19,7 @@
 #define CARLA_BACKEND_UTILS_HPP_INCLUDED
 
 #include "CarlaBackend.h"
+#include "CarlaNative.h"
 #include "CarlaString.hpp"
 
 CARLA_BACKEND_START_NAMESPACE
@@ -51,7 +52,7 @@ const char* PluginOption2Str(const uint option) noexcept
     }
 
     carla_stderr("CarlaBackend::PluginOption2Str(%i) - invalid option", option);
-    return nullptr;
+    return "";
 }
 
 // -----------------------------------------------------------------------
@@ -76,7 +77,7 @@ const char* BinaryType2Str(const BinaryType type) noexcept
     }
 
     carla_stderr("CarlaBackend::BinaryType2Str(%i) - invalid type", type);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -93,7 +94,7 @@ const char* FileType2Str(const FileType type) noexcept
     }
 
     carla_stderr("CarlaBackend::FileType2Str(%i) - invalid type", type);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -127,10 +128,16 @@ const char* PluginType2Str(const PluginType type) noexcept
         return "PLUGIN_SFZ";
     case PLUGIN_JACK:
         return "PLUGIN_JACK";
+    case PLUGIN_JSFX:
+        return "PLUGIN_JSFX";
+    case PLUGIN_CLAP:
+        return "PLUGIN_CLAP";
+    case PLUGIN_TYPE_COUNT:
+        break;
     }
 
     carla_stderr("CarlaBackend::PluginType2Str(%i) - invalid type", type);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -161,7 +168,7 @@ const char* PluginCategory2Str(const PluginCategory category) noexcept
     }
 
     carla_stderr("CarlaBackend::PluginCategory2Str(%i) - invalid category", category);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -178,7 +185,7 @@ const char* ParameterType2Str(const ParameterType type) noexcept
     }
 
     carla_stderr("CarlaBackend::ParameterType2Str(%i) - invalid type", type);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -209,7 +216,7 @@ const char* InternalParameterIndex2Str(const InternalParameterIndex index) noexc
     }
 
     carla_stderr("CarlaBackend::InternalParameterIndex2Str(%i) - invalid index", index);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -322,7 +329,7 @@ const char* EngineCallbackOpcode2Str(const EngineCallbackOpcode opcode) noexcept
     }
 
     carla_stderr("CarlaBackend::EngineCallbackOpcode2Str(%i) - invalid opcode", opcode);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -411,7 +418,7 @@ const char* EngineOption2Str(const EngineOption option) noexcept
     }
 
     carla_stderr("CarlaBackend::EngineOption2Str(%i) - invalid option", option);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -432,7 +439,7 @@ const char* EngineProcessMode2Str(const EngineProcessMode mode) noexcept
     }
 
     carla_stderr("CarlaBackend::EngineProcessMode2Str(%i) - invalid mode", mode);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -453,7 +460,7 @@ const char* EngineTransportMode2Str(const EngineTransportMode mode) noexcept
     }
 
     carla_stderr("CarlaBackend::EngineTransportMode2Str(%i) - invalid mode", mode);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -470,7 +477,7 @@ const char* FileCallbackOpcode2Str(const FileCallbackOpcode opcode) noexcept
     }
 
     carla_stderr("CarlaBackend::FileCallbackOpcode2Str(%i) - invalid opcode", opcode);
-    return nullptr;
+    return "";
 }
 
 static inline
@@ -493,10 +500,112 @@ const char* PatchbayIcon2Str(const PatchbayIcon icon) noexcept
     }
 
     carla_stderr("CarlaBackend::PatchbayIcon2Str(%i) - invalid icon", icon);
-    return nullptr;
+    return "";
 }
 
 // -----------------------------------------------------------------------
+
+static inline
+const char* NativePluginDispatcherOpcode2Str(const NativePluginDispatcherOpcode opcode) noexcept
+{
+    switch (opcode)
+    {
+    case NATIVE_PLUGIN_OPCODE_NULL:
+        return "NATIVE_PLUGIN_OPCODE_NULL";
+    case NATIVE_PLUGIN_OPCODE_BUFFER_SIZE_CHANGED:
+        return "NATIVE_PLUGIN_OPCODE_BUFFER_SIZE_CHANGED";
+    case NATIVE_PLUGIN_OPCODE_SAMPLE_RATE_CHANGED:
+        return "NATIVE_PLUGIN_OPCODE_SAMPLE_RATE_CHANGED";
+    case NATIVE_PLUGIN_OPCODE_OFFLINE_CHANGED:
+        return "NATIVE_PLUGIN_OPCODE_OFFLINE_CHANGED";
+    case NATIVE_PLUGIN_OPCODE_UI_NAME_CHANGED:
+        return "NATIVE_PLUGIN_OPCODE_UI_NAME_CHANGED";
+    case NATIVE_PLUGIN_OPCODE_GET_INTERNAL_HANDLE:
+        return "NATIVE_PLUGIN_OPCODE_GET_INTERNAL_HANDLE";
+    case NATIVE_PLUGIN_OPCODE_IDLE:
+        return "NATIVE_PLUGIN_OPCODE_IDLE";
+    case NATIVE_PLUGIN_OPCODE_UI_MIDI_EVENT:
+        return "NATIVE_PLUGIN_OPCODE_UI_MIDI_EVENT";
+    case NATIVE_PLUGIN_OPCODE_HOST_USES_EMBED:
+        return "NATIVE_PLUGIN_OPCODE_HOST_USES_EMBED";
+    case NATIVE_PLUGIN_OPCODE_HOST_OPTION:
+        return "NATIVE_PLUGIN_OPCODE_HOST_OPTION";
+    }
+
+    carla_stderr("CarlaBackend::NativePluginDispatcherOpcode2Str(%i) - invalid icon", opcode);
+    return "";
+}
+
+static inline
+const char* NativeHostDispatcherOpcode2Str(const NativeHostDispatcherOpcode opcode) noexcept
+{
+    switch (opcode)
+    {
+    case NATIVE_HOST_OPCODE_NULL:
+        return "NATIVE_HOST_OPCODE_NULL";
+    case NATIVE_HOST_OPCODE_UPDATE_PARAMETER:
+        return "NATIVE_HOST_OPCODE_UPDATE_PARAMETER";
+    case NATIVE_HOST_OPCODE_UPDATE_MIDI_PROGRAM:
+        return "NATIVE_HOST_OPCODE_UPDATE_MIDI_PROGRAM";
+    case NATIVE_HOST_OPCODE_RELOAD_PARAMETERS:
+        return "NATIVE_HOST_OPCODE_RELOAD_PARAMETERS";
+    case NATIVE_HOST_OPCODE_RELOAD_MIDI_PROGRAMS:
+        return "NATIVE_HOST_OPCODE_RELOAD_MIDI_PROGRAMS";
+    case NATIVE_HOST_OPCODE_RELOAD_ALL:
+        return "NATIVE_HOST_OPCODE_RELOAD_ALL";
+    case NATIVE_HOST_OPCODE_UI_UNAVAILABLE:
+        return "NATIVE_HOST_OPCODE_UI_UNAVAILABLE";
+    case NATIVE_HOST_OPCODE_HOST_IDLE:
+        return "NATIVE_HOST_OPCODE_HOST_IDLE";
+    case NATIVE_HOST_OPCODE_INTERNAL_PLUGIN:
+        return "NATIVE_HOST_OPCODE_INTERNAL_PLUGIN";
+    case NATIVE_HOST_OPCODE_QUEUE_INLINE_DISPLAY:
+        return "NATIVE_HOST_OPCODE_QUEUE_INLINE_DISPLAY";
+    case NATIVE_HOST_OPCODE_UI_TOUCH_PARAMETER:
+        return "NATIVE_HOST_OPCODE_UI_TOUCH_PARAMETER";
+    case NATIVE_HOST_OPCODE_REQUEST_IDLE:
+        return "NATIVE_HOST_OPCODE_REQUEST_IDLE";
+    case NATIVE_HOST_OPCODE_GET_FILE_PATH:
+        return "NATIVE_HOST_OPCODE_GET_FILE_PATH";
+    case NATIVE_HOST_OPCODE_UI_RESIZE:
+        return "NATIVE_HOST_OPCODE_UI_RESIZE";
+    case NATIVE_HOST_OPCODE_PREVIEW_BUFFER_DATA:
+        return "NATIVE_HOST_OPCODE_PREVIEW_BUFFER_DATA";
+    }
+
+    carla_stderr("CarlaBackend::NativeHostDispatcherOpcode2Str(%i) - invalid icon", opcode);
+    return "";
+}
+
+// -----------------------------------------------------------------------
+
+static inline
+const char* getBinaryTypeAsString(const BinaryType type) noexcept
+{
+    carla_debug("CarlaBackend::getBinaryTypeAsString(%i:%s)", type, BinaryType2Str(type));
+
+    if (type == BINARY_NATIVE)
+        return "native";
+
+    switch (type)
+    {
+    case BINARY_NONE:
+        return "none";
+    case BINARY_POSIX32:
+        return "posix32";
+    case BINARY_POSIX64:
+        return "posix64";
+    case BINARY_WIN32:
+        return "win32";
+    case BINARY_WIN64:
+        return "win64";
+    case BINARY_OTHER:
+        return "other";
+    }
+
+    carla_stderr("CarlaBackend::getBinaryTypeAsString(%i) - invalid type", type);
+    return "NONE";
+}
 
 static inline
 BinaryType getBinaryTypeFromString(const char* const ctype) noexcept
@@ -523,6 +632,8 @@ BinaryType getBinaryTypeFromString(const char* const ctype) noexcept
         return BINARY_WIN32;
     if (stype == "win64")
         return BINARY_WIN64;
+    if (stype == "other")
+        return BINARY_OTHER;
 
     carla_stderr("CarlaBackend::getBinaryTypeFromString(\"%s\") - invalid string type", ctype);
     return BINARY_NONE;
@@ -564,6 +675,39 @@ const char* getPluginCategoryAsString(const PluginCategory category) noexcept
 }
 
 static inline
+PluginCategory getPluginCategoryFromString(const char* const category) noexcept
+{
+    CARLA_SAFE_ASSERT_RETURN(category != nullptr && category[0] != '\0', PLUGIN_CATEGORY_NONE);
+    carla_debug("CarlaBackend::getPluginCategoryFromString(\"%s\")", category);
+
+    if (std::strcmp(category, "none") == 0)
+        return PLUGIN_CATEGORY_NONE;
+    if (std::strcmp(category, "synth") == 0)
+        return PLUGIN_CATEGORY_SYNTH;
+    if (std::strcmp(category, "delay") == 0)
+        return PLUGIN_CATEGORY_DELAY;
+    if (std::strcmp(category, "eq") == 0)
+        return PLUGIN_CATEGORY_EQ;
+    if (std::strcmp(category, "filter") == 0)
+        return PLUGIN_CATEGORY_FILTER;
+    if (std::strcmp(category, "distortion") == 0)
+        return PLUGIN_CATEGORY_DISTORTION;
+    if (std::strcmp(category, "dynamics") == 0)
+        return PLUGIN_CATEGORY_DYNAMICS;
+    if (std::strcmp(category, "modulator") == 0)
+        return PLUGIN_CATEGORY_MODULATOR;
+    if (std::strcmp(category, "utility") == 0)
+        return PLUGIN_CATEGORY_UTILITY;
+    if (std::strcmp(category, "other") == 0)
+        return PLUGIN_CATEGORY_OTHER;
+
+    carla_stderr("CarlaBackend::getPluginCategoryFromString(\"%s\") - invalid category", category);
+    return PLUGIN_CATEGORY_NONE;
+}
+
+// -----------------------------------------------------------------------
+
+static inline
 const char* getPluginTypeAsString(const PluginType type) noexcept
 {
     carla_debug("CarlaBackend::getPluginTypeAsString(%i:%s)", type, PluginType2Str(type));
@@ -596,6 +740,12 @@ const char* getPluginTypeAsString(const PluginType type) noexcept
         return "SFZ";
     case PLUGIN_JACK:
         return "JACK";
+    case PLUGIN_JSFX:
+        return "JSFX";
+    case PLUGIN_CLAP:
+        return "CLAP";
+    case PLUGIN_TYPE_COUNT:
+        break;
     }
 
     carla_stderr("CarlaBackend::getPluginTypeAsString(%i) - invalid type", type);
@@ -641,6 +791,10 @@ PluginType getPluginTypeFromString(const char* const ctype) noexcept
         return PLUGIN_SFZ;
     if (stype == "jack")
         return PLUGIN_JACK;
+    if (stype == "jsfx")
+        return PLUGIN_JSFX;
+    if (stype == "clap")
+        return PLUGIN_CLAP;
 
     carla_stderr("CarlaBackend::getPluginTypeFromString(\"%s\") - invalid string type", ctype);
     return PLUGIN_NONE;

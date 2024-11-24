@@ -1,19 +1,5 @@
-/*
- * Carla Standalone
- * Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 // TODO:
 // Check carla_stderr2("Engine is not running"); <= prepend func name and args
@@ -27,9 +13,6 @@
 #include "CarlaBackendUtils.hpp"
 #include "CarlaBase64Utils.hpp"
 #include "ThreadSafeFFTW.hpp"
-#ifndef BUILD_BRIDGE
-# include "CarlaLogThread.hpp"
-#endif
 
 #include "water/files/File.h"
 
@@ -40,21 +23,6 @@
             ((CarlaHostStandalone*)handle)->lastError = msg;     \
         return ret;                                              \
     }
-
-// --------------------------------------------------------------------------------------------------------------------
-
-#ifdef USING_JUCE
-static void carla_standalone_juce_init(void);
-static void carla_standalone_juce_idle(void);
-static void carla_standalone_juce_cleanup(void);
-# define carla_juce_init carla_standalone_juce_init
-# define carla_juce_idle carla_standalone_juce_idle
-# define carla_juce_cleanup carla_standalone_juce_cleanup
-# include "utils/JUCE.cpp"
-# undef carla_juce_init
-# undef carla_juce_idle
-# undef carla_juce_cleanup
-#endif
 
 // -------------------------------------------------------------------------------------------------------------------
 // Always return a valid string ptr for standalone functions
@@ -146,7 +114,7 @@ void _CarlaTransportInfo::clear() noexcept
 
 // --------------------------------------------------------------------------------------------------------------------
 
-using CarlaBackend::CarlaPluginPtr;
+using CARLA_BACKEND_NAMESPACE::CarlaPluginPtr;
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -183,9 +151,9 @@ const EngineDriverDeviceInfo* carla_get_engine_driver_device_info(uint index, co
 
     if (const EngineDriverDeviceInfo* const devInfo = CarlaEngine::getDriverDeviceInfo(index, name))
     {
-        retDevInfo.hints       =  devInfo->hints;
-        retDevInfo.bufferSizes = (devInfo->bufferSizes != nullptr) ? devInfo->bufferSizes : nullBufferSizes;
-        retDevInfo.sampleRates = (devInfo->sampleRates != nullptr) ? devInfo->sampleRates : nullSampleRates;
+        retDevInfo.hints       = devInfo->hints;
+        retDevInfo.bufferSizes = devInfo->bufferSizes != nullptr ? devInfo->bufferSizes : nullBufferSizes;
+        retDevInfo.sampleRates = devInfo->sampleRates != nullptr ? devInfo->sampleRates : nullSampleRates;
     }
     else
     {
@@ -283,6 +251,12 @@ static void carla_engine_init_common(const CarlaHostStandalone& standalone, Carl
     if (const char* const pathSFZ = std::getenv("ENGINE_OPTION_PLUGIN_PATH_SFZ"))
         engine->setOption(CB::ENGINE_OPTION_PLUGIN_PATH, CB::PLUGIN_SFZ, pathSFZ);
 
+    if (const char* const pathJSFX = std::getenv("ENGINE_OPTION_PLUGIN_PATH_JSFX"))
+        engine->setOption(CB::ENGINE_OPTION_PLUGIN_PATH, CB::PLUGIN_JSFX, pathJSFX);
+
+    if (const char* const pathCLAP = std::getenv("ENGINE_OPTION_PLUGIN_PATH_CLAP"))
+        engine->setOption(CB::ENGINE_OPTION_PLUGIN_PATH, CB::PLUGIN_CLAP, pathCLAP);
+
     if (const char* const binaryDir = std::getenv("ENGINE_OPTION_PATH_BINARIES"))
         engine->setOption(CB::ENGINE_OPTION_PATH_BINARIES, 0, binaryDir);
     else
@@ -347,6 +321,12 @@ static void carla_engine_init_common(const CarlaHostStandalone& standalone, Carl
     if (standalone.engineOptions.pathSFZ != nullptr)
         engine->setOption(CB::ENGINE_OPTION_PLUGIN_PATH,       CB::PLUGIN_SFZ, standalone.engineOptions.pathSFZ);
 
+    if (standalone.engineOptions.pathJSFX != nullptr)
+        engine->setOption(CB::ENGINE_OPTION_PLUGIN_PATH,       CB::PLUGIN_JSFX, standalone.engineOptions.pathJSFX);
+
+    if (standalone.engineOptions.pathCLAP != nullptr)
+        engine->setOption(CB::ENGINE_OPTION_PLUGIN_PATH,       CB::PLUGIN_CLAP, standalone.engineOptions.pathCLAP);
+
     if (standalone.engineOptions.binaryDir != nullptr && standalone.engineOptions.binaryDir[0] != '\0')
         engine->setOption(CB::ENGINE_OPTION_PATH_BINARIES, 0, standalone.engineOptions.binaryDir);
     else
@@ -406,10 +386,6 @@ bool carla_engine_init(CarlaHostHandle handle, const char* driverName, const cha
     carla_setenv("WINEASIO_CLIENT_NAME", clientName);
 #endif
 
-#ifdef USING_JUCE
-    carla_standalone_juce_init();
-#endif
-
     CarlaHostStandalone& shandle((CarlaHostStandalone&)*handle);
 
     CarlaEngine* const engine = CarlaEngine::newDriverByName(driverName);
@@ -444,7 +420,7 @@ bool carla_engine_init(CarlaHostHandle handle, const char* driverName, const cha
 
     if (engine->init(clientName))
     {
-#ifndef BUILD_BRIDGE
+#ifdef CARLA_CAN_USE_LOG_THREAD
         if (shandle.logThreadEnabled && std::getenv("CARLA_LOGS_DISABLED") == nullptr)
             shandle.logThread.init();
 #endif
@@ -456,9 +432,6 @@ bool carla_engine_init(CarlaHostHandle handle, const char* driverName, const cha
         shandle.lastError = engine->getLastError();
         shandle.engine = nullptr;
         delete engine;
-#ifdef USING_JUCE
-        carla_standalone_juce_cleanup();
-#endif
         return false;
     }
 }
@@ -529,16 +502,13 @@ bool carla_engine_close(CarlaHostHandle handle)
     if (! closed)
         shandle.lastError = engine->getLastError();
 
-#ifndef BUILD_BRIDGE
+#ifdef CARLA_CAN_USE_LOG_THREAD
     shandle.logThread.stop();
 #endif
 
     shandle.engine = nullptr;
     delete engine;
 
-#ifdef USING_JUCE
-    carla_standalone_juce_cleanup();
-#endif
     return closed;
 }
 
@@ -547,11 +517,6 @@ void carla_engine_idle(CarlaHostHandle handle)
     CARLA_SAFE_ASSERT_RETURN(handle->engine != nullptr && handle->isStandalone,);
 
     handle->engine->idle();
-
-#ifdef USING_JUCE
-    if (handle->isStandalone)
-        carla_standalone_juce_idle();
-#endif
 }
 
 bool carla_is_engine_running(CarlaHostHandle handle)
@@ -687,7 +652,7 @@ void carla_set_engine_callback(CarlaHostHandle handle, EngineCallbackFunc func, 
         shandle.engineCallback    = func;
         shandle.engineCallbackPtr = ptr;
 
-#ifndef BUILD_BRIDGE
+#ifdef CARLA_CAN_USE_LOG_THREAD
         shandle.logThread.setCallback(func, ptr);
 #endif
     }
@@ -851,7 +816,7 @@ void carla_set_engine_option(CarlaHostHandle handle, EngineOption option, int va
 
         case CB::ENGINE_OPTION_PLUGIN_PATH:
             CARLA_SAFE_ASSERT_RETURN(value > CB::PLUGIN_NONE,);
-            CARLA_SAFE_ASSERT_RETURN(value <= CB::PLUGIN_SFZ,);
+            CARLA_SAFE_ASSERT_RETURN(value <= CB::PLUGIN_TYPE_COUNT,);
             CARLA_SAFE_ASSERT_RETURN(valueStr != nullptr,);
 
             switch (value)
@@ -890,6 +855,16 @@ void carla_set_engine_option(CarlaHostHandle handle, EngineOption option, int va
                 if (shandle.engineOptions.pathSFZ != nullptr)
                     delete[] shandle.engineOptions.pathSFZ;
                 shandle.engineOptions.pathSFZ = carla_strdup_safe(valueStr);
+                break;
+            case CB::PLUGIN_JSFX:
+                if (shandle.engineOptions.pathJSFX != nullptr)
+                    delete[] shandle.engineOptions.pathJSFX;
+                shandle.engineOptions.pathJSFX = carla_strdup_safe(valueStr);
+                break;
+            case CB::PLUGIN_CLAP:
+                if (shandle.engineOptions.pathCLAP != nullptr)
+                    delete[] shandle.engineOptions.pathCLAP;
+                shandle.engineOptions.pathCLAP = carla_strdup_safe(valueStr);
                 break;
             }
             break;
@@ -979,7 +954,9 @@ void carla_set_engine_option(CarlaHostHandle handle, EngineOption option, int va
 
 #ifndef BUILD_BRIDGE
         case CB::ENGINE_OPTION_DEBUG_CONSOLE_OUTPUT:
+#ifdef CARLA_CAN_USE_LOG_THREAD
             shandle.logThreadEnabled = (value != 0);
+#endif
             break;
 #endif
 
@@ -1204,7 +1181,8 @@ uint32_t carla_get_current_plugin_count(CarlaHostHandle handle)
 {
     CARLA_SAFE_ASSERT_RETURN(handle->engine != nullptr, 0);
 
-    carla_debug("carla_get_current_plugin_count(%p)", handle);
+    // too noisy!
+    // carla_debug("carla_get_current_plugin_count(%p)", handle);
 
     return handle->engine->getCurrentPluginCount();
 }
@@ -1319,6 +1297,7 @@ bool carla_save_plugin_state(CarlaHostHandle handle, uint pluginId, const char* 
     return false;
 }
 
+#ifndef CARLA_PLUGIN_ONLY_BRIDGE
 bool carla_export_plugin_lv2(CarlaHostHandle handle, uint pluginId, const char* lv2path)
 {
     CARLA_SAFE_ASSERT_RETURN(lv2path != nullptr && lv2path[0] != '\0', false);
@@ -1329,6 +1308,7 @@ bool carla_export_plugin_lv2(CarlaHostHandle handle, uint pluginId, const char* 
 
     return false;
 }
+#endif
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -1569,6 +1549,22 @@ const CarlaScalePointInfo* carla_get_parameter_scalepoint_info(CarlaHostHandle h
     }
 
     return &retInfo;
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+
+uint carla_get_audio_port_hints(CarlaHostHandle handle, uint pluginId, bool isOutput, uint32_t portIndex)
+{
+    CARLA_SAFE_ASSERT_RETURN(handle->engine != nullptr, 0x0);
+
+    if (const CarlaPluginPtr plugin = handle->engine->getPlugin(pluginId))
+    {
+        CARLA_SAFE_ASSERT_RETURN(portIndex < (isOutput ? plugin->getAudioOutCount() : plugin->getAudioInCount()), 0x0);
+
+        return plugin->getAudioPortHints(isOutput, portIndex);
+    }
+
+    return 0x0;
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -1960,6 +1956,18 @@ float carla_get_internal_parameter_value(CarlaHostHandle handle, uint pluginId, 
 
 // --------------------------------------------------------------------------------------------------------------------
 
+uint32_t carla_get_plugin_latency(CarlaHostHandle handle, uint pluginId)
+{
+    CARLA_SAFE_ASSERT_RETURN(handle->engine != nullptr, 0);
+
+    if (const CarlaPluginPtr plugin = handle->engine->getPlugin(pluginId))
+         return plugin->getLatencyInFrames();
+
+    return 0;
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+
 const float* carla_get_peak_values(CarlaHostHandle handle, uint pluginId)
 {
     CARLA_SAFE_ASSERT_RETURN(handle->engine != nullptr, nullptr);
@@ -1985,13 +1993,15 @@ float carla_get_output_peak_value(CarlaHostHandle handle, uint pluginId, bool is
 
 CARLA_BACKEND_START_NAMESPACE
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+#if !(defined(BUILD_BRIDGE_ALTERNATIVE_ARCH) || defined(CARLA_PLUGIN_ONLY_BRIDGE))
 // defined in CarlaPluginInternal.cpp
 const void* carla_render_inline_display_internal(const CarlaPluginPtr& plugin, uint32_t width, uint32_t height);
 #endif
 
+#ifndef CARLA_PLUGIN_ONLY_BRIDGE
 // defined in CarlaPluginLV2.cpp
 const void* carla_render_inline_display_lv2(const CarlaPluginPtr& plugin, uint32_t width, uint32_t height);
+#endif
 
 CARLA_BACKEND_END_NAMESPACE
 
@@ -2008,18 +2018,24 @@ const CarlaInlineDisplayImageSurface* carla_render_inline_display(CarlaHostHandl
     {
         switch (plugin->getType())
         {
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+#if !(defined(BUILD_BRIDGE_ALTERNATIVE_ARCH) || defined(CARLA_PLUGIN_ONLY_BRIDGE))
         case CB::PLUGIN_INTERNAL:
             return (const CarlaInlineDisplayImageSurface*)CB::carla_render_inline_display_internal(plugin, width, height);
 #endif
+#ifndef CARLA_PLUGIN_ONLY_BRIDGE
         case CB::PLUGIN_LV2:
             return (const CarlaInlineDisplayImageSurface*)CB::carla_render_inline_display_lv2(plugin, width, height);
+#endif
         default:
             return nullptr;
         }
     }
 
     return nullptr;
+
+    // maybe unused
+    (void)width;
+    (void)height;
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -2364,7 +2380,7 @@ const char* carla_get_host_osc_url_udp(CarlaHostHandle handle)
 
 // --------------------------------------------------------------------------------------------------------------------
 
-#ifndef CARLA_PLUGIN_EXPORT
+#ifndef CARLA_PLUGIN_BUILD
 # define CARLA_PLUGIN_UI_CLASS_PREFIX Standalone
 # include "CarlaPluginUI.cpp"
 # undef CARLA_PLUGIN_UI_CLASS_PREFIX
@@ -2375,6 +2391,7 @@ const char* carla_get_host_osc_url_udp(CarlaHostHandle handle)
 # include "CarlaProcessUtils.cpp"
 # include "CarlaStateUtils.cpp"
 # include "utils/Information.cpp"
-#endif /* CARLA_PLUGIN_EXPORT */
+# include "utils/Windows.cpp"
+#endif /* CARLA_PLUGIN_BUILD */
 
 // --------------------------------------------------------------------------------------------------------------------

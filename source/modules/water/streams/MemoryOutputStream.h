@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -62,13 +62,6 @@ public:
     MemoryOutputStream (MemoryBlock& memoryBlockToWriteTo,
                         bool appendToExistingBlockContent);
 
-    /** Creates a MemoryOutputStream that will write into a user-supplied, fixed-size
-        block of memory.
-        When using this mode, the stream will write directly into this memory area until
-        it's full, at which point write operations will fail.
-    */
-    MemoryOutputStream (void* destBuffer, size_t destBufferSize);
-
     /** Destructor.
         This will free any data that was written to it.
     */
@@ -79,6 +72,11 @@ public:
         @see getDataSize
     */
     const void* getData() const noexcept;
+
+    /** Returns a pointer to the data that has been written to the stream and releases the buffer pointer.
+        @see getDataSize
+    */
+    void* getDataAndRelease() noexcept;
 
     /** Returns the number of bytes of data that have been written to the stream.
         @see getData
@@ -122,15 +120,15 @@ public:
 
 private:
     //==============================================================================
-    MemoryBlock* const blockToUse;
     MemoryBlock internalBlock;
-    void* externalData;
-    size_t position, size, availableSize;
+    MemoryBlock& blockToUse;
+    size_t position, size;
+    bool usingInternalBlock;
 
     void trimExternalBlockSize();
     char* prepareToWrite (size_t);
 
-    CARLA_DECLARE_NON_COPY_CLASS (MemoryOutputStream)
+    CARLA_DECLARE_NON_COPYABLE (MemoryOutputStream)
 };
 
 /** Copies all the data that has been written to a MemoryOutputStream into another stream. */

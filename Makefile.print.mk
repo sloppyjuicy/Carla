@@ -26,8 +26,8 @@ endif
 
 features_print_main:
 	@printf -- "$(tS)---> Main features $(tE)\n"
-ifeq ($(HAVE_PYQT),true)
-	@printf -- "Front-End:     $(ANS_YES)\n"
+ifeq ($(HAVE_FRONTEND),true)
+	@printf -- "Front-End:     $(ANS_YES) (Qt$(FRONTEND_TYPE))\n"
 	@printf -- "LV2 plugin:    $(ANS_YES)\n"
 ifneq ($(HAIKU),true)
 	@printf -- "VST2 plugin:   $(ANS_YES)\n"
@@ -35,32 +35,26 @@ else
 	@printf -- "VST2 plugin:   $(ANS_NO)  $(mZ)Not available for Haiku$(mE)\n"
 endif
 else
-	@printf -- "Front-End:     $(ANS_NO)  $(mS)Missing PyQt$(mE)\n"
+	@printf -- "Front-End:     $(ANS_NO)  $(mS)Missing Qt and/or PyQt$(mE)\n"
 	@printf -- "LV2 plugin:    $(ANS_NO)  $(mS)No front-end$(mE)\n"
 	@printf -- "VST2 plugin:   $(ANS_NO)  $(mS)No front-end$(mE)\n"
 endif
 ifeq ($(HAVE_HYLIA),true)
 	@printf -- "Link support:  $(ANS_YES)\n"
 else
-ifeq ($(MACOS_OLD),true)
-	@printf -- "Link support:  $(ANS_NO)  $(mZ)MacOS >= 10.8 only$(mE)\n"
-else
 	@printf -- "Link support:  $(ANS_NO)  $(mZ)Linux, MacOS and Windows only$(mE)\n"
-endif
 endif
 ifeq ($(HAVE_LIBLO),true)
 	@printf -- "OSC support:   $(ANS_YES)\n"
 else
 	@printf -- "OSC support:   $(ANS_NO)  $(mS)Missing liblo$(mE)\n"
 endif
-ifeq ($(WIN32),true)
+ifeq ($(WINDOWS),true)
 	@printf -- "Binary detect: $(ANS_YES)\n"
-else
-ifeq ($(HAVE_LIBMAGIC),true)
+else ifeq ($(HAVE_LIBMAGIC),true)
 	@printf -- "Binary detect: $(ANS_YES)\n"
 else
 	@printf -- "Binary detect: $(ANS_NO)  $(mS)Missing libmagic/file$(mE)\n"
-endif
 endif
 	@printf -- "\n"
 
@@ -93,14 +87,17 @@ ifeq ($(MACOS),true)
 else
 	@printf -- "CoreAudio:   $(ANS_NO)  $(mZ)MacOS only$(mE)\n"
 endif
-ifeq ($(WIN32),true)
-	@printf -- "ASIO:        $(ANS_YES)\n"
+ifeq ($(WINDOWS),true)
 	@printf -- "DirectSound: $(ANS_YES)\n"
 	@printf -- "WASAPI:      $(ANS_YES)\n"
 else
-	@printf -- "ASIO:        $(ANS_NO)  $(mZ)Windows only$(mE)\n"
 	@printf -- "DirectSound: $(ANS_NO)  $(mZ)Windows only$(mE)\n"
 	@printf -- "WASAPI:      $(ANS_NO)  $(mZ)Windows only$(mE)\n"
+endif
+ifeq ($(HAVE_SDL),true)
+	@printf -- "SDL:         $(ANS_YES)\n"
+else
+	@printf -- "SDL:         $(ANS_NO)  $(mS)Missing SDL$(mE)\n"
 endif
 	@printf -- "\n"
 
@@ -109,38 +106,22 @@ endif
 	@printf -- "LADSPA:   $(ANS_YES)\n"
 	@printf -- "DSSI:     $(ANS_YES)\n"
 	@printf -- "LV2:      $(ANS_YES)\n"
-ifeq ($(MACOS_OR_WIN32),true)
-ifeq ($(USING_JUCE),true)
-	@printf -- "VST2:     $(ANS_YES) (with UI, using JUCE)\n"
-	@printf -- "VST3:     $(ANS_YES) (with UI, using JUCE)\n"
-else  # USING_JUCE
+	@printf -- "CLAP:     $(ANS_YES)\n"
+ifeq ($(MACOS_OR_WINDOWS),true)
 	@printf -- "VST2:     $(ANS_YES) (with UI)\n"
-	@printf -- "VST3:     $(ANS_NO)\n"
-endif # USING_JUCE
-else  # MACOS_OR_WIN32
-ifeq ($(HAIKU),true)
+	@printf -- "VST3:     $(ANS_YES) (with UI)\n"
+else ifeq ($(HAIKU),true)
 	@printf -- "VST2:     $(ANS_YES) (without UI)\n"
-	@printf -- "VST3:     $(ANS_NO)\n"
-else  # HAIKU
-ifeq ($(HAVE_X11),true)
+	@printf -- "VST3:     $(ANS_YES) (without UI)\n"
+else ifeq ($(HAVE_X11),true)
 	@printf -- "VST2:     $(ANS_YES) (with UI)\n"
-ifeq ($(USING_JUCE),true)
-	@printf -- "VST3:     $(ANS_YES) (with UI, using JUCE)\n"
-else  # USING_JUCE
-	@printf -- "VST3:     $(ANS_NO)\n"
-endif # USING_JUCE
-else  # HAVE_X11
+	@printf -- "VST3:     $(ANS_YES) (with UI)\n"
+else
 	@printf -- "VST2:     $(ANS_YES) (without UI) $(mS)Missing X11$(mE)\n"
-	@printf -- "VST3:     $(ANS_NO)\n"
-endif # HAVE_X11
-endif # HAIKU
-endif # MACOS_OR_WIN32
+	@printf -- "VST3:     $(ANS_YES) (without UI) $(mS)Missing X11$(mE)\n"
+endif
 ifeq ($(MACOS),true)
-ifeq ($(USING_JUCE),true)
-	@printf -- "AU:       $(ANS_YES) (with UI, using JUCE)\n"
-else  # USING_JUCE
-	@printf -- "AU:       $(ANS_NO)\n"
-endif # USING_JUCE
+	@printf -- "AU:       $(ANS_YES) (with UI)\n"
 else  # MACOS
 	@printf -- "AU:       $(ANS_NO)  $(mZ)MacOS only$(mE)\n"
 endif # MACOS
@@ -148,17 +129,9 @@ endif # MACOS
 
 	@printf -- "$(tS)---> LV2 UI toolkit support: $(tE)\n"
 	@printf -- "External: $(ANS_YES) (direct)\n"
-ifneq ($(MACOS_OR_WIN32),true)
-ifeq ($(HAVE_GTK2),true)
 	@printf -- "Gtk2:     $(ANS_YES) (bridge)\n"
-else
-	@printf -- "Gtk2:     $(ANS_NO)  $(mS)Gtk2 missing$(mE)\n"
-endif
-ifeq ($(HAVE_GTK3),true)
 	@printf -- "Gtk3:     $(ANS_YES) (bridge)\n"
-else
-	@printf -- "Gtk3:     $(ANS_NO)  $(mS)Gtk3 missing$(mE)\n"
-endif
+ifneq ($(MACOS_OR_WINDOWS),true)
 ifeq ($(HAVE_QT4),true)
 	@printf -- "Qt4:      $(ANS_YES) (bridge)\n"
 else
@@ -174,19 +147,17 @@ ifeq ($(HAVE_X11),true)
 else
 	@printf -- "X11:      $(ANS_NO)  $(mS)X11 missing$(mE)\n"
 endif
-else # LINUX
-	@printf -- "Gtk2:     $(ANS_NO)  $(mZ)Not available for Windows or MacOS$(mE)\n"
-	@printf -- "Gtk3:     $(ANS_NO)  $(mZ)Not available for Windows or MacOS$(mE)\n"
+else # !MACOS_OR_WINDOWS
 	@printf -- "Qt4:      $(ANS_NO)  $(mZ)Not available for Windows or MacOS$(mE)\n"
 	@printf -- "Qt5:      $(ANS_NO)  $(mZ)Not available for Windows or MacOS$(mE)\n"
 	@printf -- "X11:      $(ANS_NO)  $(mZ)Not available for Windows or MacOS$(mE)\n"
-endif # LINUX
+endif # !MACOS_OR_WINDOWS
 ifeq ($(MACOS),true)
 	@printf -- "Cocoa:    $(ANS_YES) (direct+bridge)\n"
 else
 	@printf -- "Cocoa:    $(ANS_NO)  $(mZ)MacOS only$(mE)\n"
 endif
-ifeq ($(WIN32),true)
+ifeq ($(WINDOWS),true)
 	@printf -- "Windows:  $(ANS_YES) (direct+bridge)\n"
 else
 	@printf -- "Windows:  $(ANS_NO)  $(mZ)Windows only$(mE)\n"

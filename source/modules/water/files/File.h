@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017-2018 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2024 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -26,8 +26,10 @@
 #ifndef WATER_FILE_H_INCLUDED
 #define WATER_FILE_H_INCLUDED
 
-#include "../containers/Array.h"
 #include "../misc/Result.h"
+#include "../text/String.h"
+
+#include <vector>
 
 namespace water {
 
@@ -66,7 +68,7 @@ public:
         On the Mac/Linux, the path can include "~" notation for referring to
         user home directories.
     */
-    File (const String& absolutePath);
+    File (const char* absolutePath);
 
     /** Creates a copy of another file object. */
     File (const File&);
@@ -84,15 +86,10 @@ public:
         On the Mac/Linux, the path can include "~" notation for referring to
         user home directories.
     */
-    File& operator= (const String& newAbsolutePath);
+    File& operator= (const char* newAbsolutePath);
 
     /** Copies from another file object. */
     File& operator= (const File& otherFile);
-
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    File (File&&) noexcept;
-    File& operator= (File&&) noexcept;
-   #endif
 
     //==============================================================================
     /** Checks whether the file actually exists.
@@ -131,13 +128,6 @@ public:
         @returns    the number of bytes in the file, or 0 if it doesn't exist.
     */
     int64 getSize() const;
-
-    /** Utility function to convert a file size in bytes to a neat string description.
-
-        So for example 100 would return "100 bytes", 2000 would return "2 KB",
-        2000000 would produce "2 MB", etc.
-    */
-    static String descriptionOfSizeInBytes (int64 bytes);
 
     //==============================================================================
     /** Returns the complete, absolute path of this file.
@@ -207,7 +197,7 @@ public:
 
         @see getFileExtension, withFileExtension, getFileNameWithoutExtension
     */
-    bool hasFileExtension (StringRef extensionToTest) const;
+    bool hasFileExtension (const char* extensionToTest) const;
 
     /** Returns a version of this file with a different file extension.
 
@@ -219,7 +209,7 @@ public:
 
         @see getFileName, getFileExtension, hasFileExtension, getFileNameWithoutExtension
     */
-    File withFileExtension (StringRef newExtension) const;
+    File withFileExtension (const char* newExtension) const;
 
     /** Returns the last part of the filename, without its file extension.
 
@@ -244,7 +234,7 @@ public:
 
         @see getSiblingFile, getParentDirectory, getRelativePathFrom, isAChildOf
     */
-    File getChildFile (StringRef relativeOrAbsolutePath) const;
+    File getChildFile (const char* relativeOrAbsolutePath) const;
 
     /** Returns a file which is in the same directory as this one.
 
@@ -252,7 +242,7 @@ public:
 
         @see getChildFile, getParentDirectory
     */
-    File getSiblingFile (StringRef siblingFileName) const;
+    File getSiblingFile (const char* siblingFileName) const;
 
     //==============================================================================
     /** Returns the directory that contains this file or directory.
@@ -325,45 +315,32 @@ public:
     */
     bool hasWriteAccess() const;
 
-    /** Changes the write-permission of a file or directory.
-
-        @param shouldBeReadOnly     whether to add or remove write-permission
-        @param applyRecursively     if the file is a directory and this is true, it will
-                                    recurse through all the subfolders changing the permissions
-                                    of all files
-        @returns    true if it manages to change the file's permissions.
-        @see hasWriteAccess
-    */
-    bool setReadOnly (bool shouldBeReadOnly,
-                      bool applyRecursively = false) const;
-
-    /** Changes the execute-permissions of a file.
-
-        @param shouldBeExecutable   whether to add or remove execute-permission
-        @returns    true if it manages to change the file's permissions.
-    */
-    bool setExecutePermission (bool shouldBeExecutable) const;
-
     /** Returns true if this file is a hidden or system file.
         The criteria for deciding whether a file is hidden are platform-dependent.
     */
     bool isHidden() const;
 
-    /** Returns a unique identifier for the file, if one is available.
+    //==============================================================================
+    /** Returns the last modification time of this file.
 
-        Depending on the OS and file-system, this may be a unix inode number or
-        a win32 file identifier, or 0 if it fails to find one. The number will
-        be unique on the filesystem, but not globally.
+        @returns    the time, or an invalid time if the file doesn't exist.
+        @see getLastAccessTime, getCreationTime
     */
-    uint64 getFileIdentifier() const;
+    int64 getLastModificationTime() const;
 
-    /** If possible, this will try to create a version string for the given file.
+    /** Returns the last time this file was accessed.
 
-        The OS may be able to look at the file and give a version for it - e.g. with
-        executables, bundles, dlls, etc. If no version is available, this will
-        return an empty string.
+        @returns    the time, or an invalid time if the file doesn't exist.
+        @see getLastModificationTime, getCreationTime
     */
-    String getVersion() const;
+    int64 getLastAccessTime() const;
+
+    /** Returns the time that this file was created.
+
+        @returns    the time, or an invalid time if the file doesn't exist.
+        @see getLastModificationTime, getLastAccessTime
+    */
+    int64 getCreationTime() const;
 
     //==============================================================================
     /** Creates an empty file if it doesn't already exist.
@@ -484,7 +461,7 @@ public:
         Assuming that this file is a directory, this method will search it
         for either files or subdirectories whose names match a filename pattern.
 
-        @param results                  an array to which File objects will be added for the
+        @param results                  an vector to which File objects will be added for the
                                         files that the search comes up with
         @param whatToLookFor            a value from the TypesOfFileToFind enum, specifying whether to
                                         return files, directories, or both. If the ignoreHiddenFiles flag
@@ -496,10 +473,10 @@ public:
 
         @see getNumberOfChildFiles, DirectoryIterator
     */
-    int findChildFiles (Array<File>& results,
-                        int whatToLookFor,
-                        bool searchRecursively,
-                        const String& wildCardPattern = "*") const;
+    uint findChildFiles (std::vector<File>& results,
+                         int whatToLookFor,
+                         bool searchRecursively,
+                         const char* wildCardPattern = "*") const;
 
     /** Searches inside a directory and counts how many files match a wildcard pattern.
 
@@ -517,8 +494,8 @@ public:
         @returns                the number of matches found
         @see findChildFiles, DirectoryIterator
     */
-    int getNumberOfChildFiles (int whatToLookFor,
-                               const String& wildCardPattern = "*") const;
+    uint getNumberOfChildFiles (int whatToLookFor,
+                                const char* wildCardPattern = "*") const;
 
     /** Returns true if this file is a directory that contains one or more subdirectories.
         @see isDirectory, findChildFiles
@@ -567,11 +544,6 @@ public:
         read either UTF-16 or UTF-8 file formats.
     */
     String loadFileAsString() const;
-
-    /** Reads the contents of this file as text and splits it into lines, which are
-        appended to the given StringArray.
-    */
-    void readLines (StringArray& destLines) const;
 
     //==============================================================================
     /** Appends a block of binary data to the end of the file.
@@ -664,7 +636,10 @@ public:
         currentExecutableFile,
 
         /** In a plugin, this will return the path of the host executable. */
-        hostApplicationPath
+        hostApplicationPath,
+
+        /** Windows specific paths */
+        winAppData, winProgramFiles, winCommonProgramFiles, winMyDocuments
     };
 
     /** Finds the location of a special type of file or directory, such as a home folder or
@@ -679,7 +654,7 @@ public:
         This will try to return the name of a non-existent temp file.
         To get the temp folder, you can use getSpecialLocation (File::tempDirectory).
     */
-    static File createTempFile (StringRef fileNameEnding);
+    static File createTempFile (const char* fileNameEnding);
 
     //==============================================================================
     /** Returns the current working directory.
@@ -695,17 +670,6 @@ public:
         @see getCurrentWorkingDirectory
     */
     bool setAsCurrentWorkingDirectory() const;
-
-    //==============================================================================
-    /** The system-specific file separator character.
-        On Windows, this will be '\', on Mac/Linux, it'll be '/'
-    */
-    static const water_uchar separator;
-
-    /** The system-specific file separator character, as a string.
-        On Windows, this will be '\', on Mac/Linux, it'll be '/'
-    */
-    static const String separatorString;
 
     //==============================================================================
     /** Returns a version of a filename with any illegal characters removed.
@@ -734,7 +698,7 @@ public:
     static bool areFileNamesCaseSensitive();
 
     /** Returns true if the string seems to be a fully-specified absolute path. */
-    static bool isAbsolutePath (StringRef path);
+    static bool isAbsolutePath (const char* path);
 
     /** Creates a file that simply contains this string, without doing the sanity-checking
         that the normal constructors do.
@@ -785,7 +749,6 @@ private:
     bool copyInternal (const File&) const;
     bool moveInternal (const File&) const;
     bool replaceInternal (const File&) const;
-    bool setFileTimesInternal (int64 m, int64 a, int64 c) const;
     void getFileTimesInternal (int64& m, int64& a, int64& c) const;
     bool setFileReadOnlyInternal (bool) const;
     bool setFileExecutableInternal (bool) const;

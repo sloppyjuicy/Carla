@@ -1,6 +1,6 @@
 /*
  * Carla common defines
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -18,11 +18,6 @@
 #ifndef CARLA_DEFINES_H_INCLUDED
 #define CARLA_DEFINES_H_INCLUDED
 
-/* IDE Helper */
-#ifndef REAL_BUILD
-# include "config.h"
-#endif
-
 /* Compatibility with non-clang compilers */
 #ifndef __has_feature
 # define __has_feature(x) 0
@@ -32,14 +27,14 @@
 #endif
 
 /* Set Version */
-#define CARLA_VERSION_HEX    0x020302
-#define CARLA_VERSION_STRING "2.3.2"
-#define CARLA_VERSION_STRMIN "2.3"
+#define CARLA_VERSION_HEX    0x020591
+#define CARLA_VERSION_STRING "2.6.0-alpha1"
+#define CARLA_VERSION_STRMIN "2.6"
 
 /* Check OS */
 #if defined(WIN64) || defined(_WIN64) || defined(__WIN64__) || defined(_M_ARM64)
 # define CARLA_OS_WIN64
-#elif defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
+#elif defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(_M_ARM)
 # define CARLA_OS_WIN32
 #elif defined(__APPLE__)
 # define CARLA_OS_MAC
@@ -51,6 +46,8 @@
 # define CARLA_OS_BSD
 #elif defined(__GNU__)
 # define CARLA_OS_GNU_HURD
+#elif defined(__EMSCRIPTEN__)
+# define CARLA_OS_WASM
 #else
 # warning Unsupported platform!
 #endif
@@ -71,16 +68,17 @@
 #   define CARLA_PROPER_CPP11_SUPPORT
 # endif
 #elif defined(__cplusplus)
-# if __cplusplus >= 201103L || (defined(__GNUC__) && (__GNUC__ * 100 + __GNUC_MINOR__) >= 405 && defined(__GXX_EXPERIMENTAL_CXX0X__)) || __has_extension(cxx_noexcept)
+# if __cplusplus >= 201103L || (defined(__GNUC__) && (__GNUC__ * 100 + __GNUC_MINOR__) >= 405 && defined(__GXX_EXPERIMENTAL_CXX0X__)) || __has_extension(cxx_noexcept) || defined(_MSC_VER)
 #  define CARLA_PROPER_CPP11_SUPPORT
 #  if (defined(__GNUC__) && (__GNUC__ * 100 + __GNUC_MINOR__) < 407 && ! defined(__clang__)) || (defined(__clang__) && ! __has_extension(cxx_override_control))
-#   define override // gcc4.7+ only
-#   define final    // gcc4.7+ only
+#   define override /* gcc4.7+ only */
+#   define final    /* gcc4.7+ only */
 #  endif
 # endif
 #endif
 
 #if defined(__cplusplus) && ! defined(CARLA_PROPER_CPP11_SUPPORT)
+# define constexpr
 # define noexcept throw()
 # define override
 # define final
@@ -93,6 +91,7 @@
 #else
 # include <stdbool.h>
 # include <stddef.h>
+# define constexpr /* note: constexpr is coming to C soon, but no compilers support it yet */
 #endif
 
 /* Define various string format types */
@@ -110,6 +109,13 @@
 # define P_UINTPTR "%x"
 # define P_SIZE    "%u"
 # define P_SSIZE   "%i"
+#elif defined(CARLA_OS_WASM)
+# define P_INT64   "%lli"
+# define P_UINT64  "%llu"
+# define P_INTPTR  "%li"
+# define P_UINTPTR "%lx"
+# define P_SIZE    "%lu"
+# define P_SSIZE   "%li"
 #elif defined(CARLA_OS_MAC)
 # define P_INT64   "%lli"
 # define P_UINT64  "%llu"
@@ -150,6 +156,13 @@
 # endif
 #endif
 
+/* Define unlikely */
+#ifdef __GNUC__
+# define unlikely(x) __builtin_expect(x,0)
+#else
+# define unlikely(x) x
+#endif
+
 /* Define CARLA_ASSERT* */
 #if defined(CARLA_NO_ASSERTS)
 # define CARLA_ASSERT(cond)
@@ -166,40 +179,40 @@
 #endif
 
 /* Define CARLA_SAFE_ASSERT* */
-#define CARLA_SAFE_ASSERT(cond)               if (! (cond)) carla_safe_assert      (#cond, __FILE__, __LINE__);
-#define CARLA_SAFE_ASSERT_INT(cond, value)    if (! (cond)) carla_safe_assert_int  (#cond, __FILE__, __LINE__, static_cast<int>(value));
-#define CARLA_SAFE_ASSERT_INT2(cond, v1, v2)  if (! (cond)) carla_safe_assert_int2 (#cond, __FILE__, __LINE__, static_cast<int>(v1), static_cast<int>(v2));
-#define CARLA_SAFE_ASSERT_UINT(cond, value)   if (! (cond)) carla_safe_assert_uint (#cond, __FILE__, __LINE__, static_cast<uint>(value));
-#define CARLA_SAFE_ASSERT_UINT2(cond, v1, v2) if (! (cond)) carla_safe_assert_uint2(#cond, __FILE__, __LINE__, static_cast<uint>(v1), static_cast<uint>(v2));
+#define CARLA_SAFE_ASSERT(cond)               if (unlikely(!(cond))) carla_safe_assert      (#cond, __FILE__, __LINE__);
+#define CARLA_SAFE_ASSERT_INT(cond, value)    if (unlikely(!(cond))) carla_safe_assert_int  (#cond, __FILE__, __LINE__, static_cast<int>(value));
+#define CARLA_SAFE_ASSERT_INT2(cond, v1, v2)  if (unlikely(!(cond))) carla_safe_assert_int2 (#cond, __FILE__, __LINE__, static_cast<int>(v1), static_cast<int>(v2));
+#define CARLA_SAFE_ASSERT_UINT(cond, value)   if (unlikely(!(cond))) carla_safe_assert_uint (#cond, __FILE__, __LINE__, static_cast<uint>(value));
+#define CARLA_SAFE_ASSERT_UINT2(cond, v1, v2) if (unlikely(!(cond))) carla_safe_assert_uint2(#cond, __FILE__, __LINE__, static_cast<uint>(v1), static_cast<uint>(v2));
 
-#define CARLA_SAFE_ASSERT_BREAK(cond)         if (! (cond)) { carla_safe_assert(#cond, __FILE__, __LINE__); break; }
-#define CARLA_SAFE_ASSERT_CONTINUE(cond)      if (! (cond)) { carla_safe_assert(#cond, __FILE__, __LINE__); continue; }
-#define CARLA_SAFE_ASSERT_RETURN(cond, ret)   if (! (cond)) { carla_safe_assert(#cond, __FILE__, __LINE__); return ret; }
+#define CARLA_SAFE_ASSERT_BREAK(cond)         if (unlikely(!(cond))) { carla_safe_assert(#cond, __FILE__, __LINE__); break; }
+#define CARLA_SAFE_ASSERT_CONTINUE(cond)      if (unlikely(!(cond))) { carla_safe_assert(#cond, __FILE__, __LINE__); continue; }
+#define CARLA_SAFE_ASSERT_RETURN(cond, ret)   if (unlikely(!(cond))) { carla_safe_assert(#cond, __FILE__, __LINE__); return ret; }
 
-#define CARLA_CUSTOM_SAFE_ASSERT(msg, cond)             if (! (cond)) carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__);
-#define CARLA_CUSTOM_SAFE_ASSERT_BREAK(msg, cond)       if (! (cond)) { carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); break; }
-#define CARLA_CUSTOM_SAFE_ASSERT_CONTINUE(msg, cond)    if (! (cond)) { carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); continue; }
-#define CARLA_CUSTOM_SAFE_ASSERT_RETURN(msg, cond, ret) if (! (cond)) { carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); return ret; }
+#define CARLA_CUSTOM_SAFE_ASSERT(msg, cond)             if (unlikely(!(cond))) carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__);
+#define CARLA_CUSTOM_SAFE_ASSERT_BREAK(msg, cond)       if (unlikely(!(cond))) { carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); break; }
+#define CARLA_CUSTOM_SAFE_ASSERT_CONTINUE(msg, cond)    if (unlikely(!(cond))) { carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); continue; }
+#define CARLA_CUSTOM_SAFE_ASSERT_RETURN(msg, cond, ret) if (unlikely(!(cond))) { carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); return ret; }
 
-#define CARLA_CUSTOM_SAFE_ASSERT_ONCE_BREAK(msg, cond)       if (! (cond)) { static bool _p; if (!_p) { _p = true; carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); } break; }
-#define CARLA_CUSTOM_SAFE_ASSERT_ONCE_CONTINUE(msg, cond)    if (! (cond)) { static bool _p; if (!_p) { _p = true; carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); } continue; }
-#define CARLA_CUSTOM_SAFE_ASSERT_ONCE_RETURN(msg, cond, ret) if (! (cond)) { static bool _p; if (!_p) { _p = true; carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); } return ret; }
+#define CARLA_CUSTOM_SAFE_ASSERT_ONCE_BREAK(msg, cond)       if (unlikely(!(cond))) { static bool _p; if (!_p) { _p = true; carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); } break; }
+#define CARLA_CUSTOM_SAFE_ASSERT_ONCE_CONTINUE(msg, cond)    if (unlikely(!(cond))) { static bool _p; if (!_p) { _p = true; carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); } continue; }
+#define CARLA_CUSTOM_SAFE_ASSERT_ONCE_RETURN(msg, cond, ret) if (unlikely(!(cond))) { static bool _p; if (!_p) { _p = true; carla_custom_safe_assert(msg, #cond, __FILE__, __LINE__); } return ret; }
 
-#define CARLA_SAFE_ASSERT_INT_BREAK(cond, value)       if (! (cond)) { carla_safe_assert_int(#cond, __FILE__, __LINE__, static_cast<int>(value); break; }
-#define CARLA_SAFE_ASSERT_INT_CONTINUE(cond, value)    if (! (cond)) { carla_safe_assert_int(#cond, __FILE__, __LINE__, static_cast<int>(value)); continue; }
-#define CARLA_SAFE_ASSERT_INT_RETURN(cond, value, ret) if (! (cond)) { carla_safe_assert_int(#cond, __FILE__, __LINE__, static_cast<int>(value)); return ret; }
+#define CARLA_SAFE_ASSERT_INT_BREAK(cond, value)       if (unlikely(!(cond))) { carla_safe_assert_int(#cond, __FILE__, __LINE__, static_cast<int>(value)); break; }
+#define CARLA_SAFE_ASSERT_INT_CONTINUE(cond, value)    if (unlikely(!(cond))) { carla_safe_assert_int(#cond, __FILE__, __LINE__, static_cast<int>(value)); continue; }
+#define CARLA_SAFE_ASSERT_INT_RETURN(cond, value, ret) if (unlikely(!(cond))) { carla_safe_assert_int(#cond, __FILE__, __LINE__, static_cast<int>(value)); return ret; }
 
-#define CARLA_SAFE_ASSERT_INT2_BREAK(cond, v1, v2)        if (! (cond)) { carla_safe_assert_int2(#cond, __FILE__, __LINE__, static_cast<int>(v1), static_cast<int>(v2)); break; }
-#define CARLA_SAFE_ASSERT_INT2_CONTINUE(cond, v1, v2)     if (! (cond)) { carla_safe_assert_int2(#cond, __FILE__, __LINE__, static_cast<int>(v1), static_cast<int>(v2)); continue; }
-#define CARLA_SAFE_ASSERT_INT2_RETURN(cond, v1, v2, ret)  if (! (cond)) { carla_safe_assert_int2(#cond, __FILE__, __LINE__, static_cast<int>(v1), static_cast<int>(v2)); return ret; }
+#define CARLA_SAFE_ASSERT_INT2_BREAK(cond, v1, v2)        if (unlikely(!(cond))) { carla_safe_assert_int2(#cond, __FILE__, __LINE__, static_cast<int>(v1), static_cast<int>(v2)); break; }
+#define CARLA_SAFE_ASSERT_INT2_CONTINUE(cond, v1, v2)     if (unlikely(!(cond))) { carla_safe_assert_int2(#cond, __FILE__, __LINE__, static_cast<int>(v1), static_cast<int>(v2)); continue; }
+#define CARLA_SAFE_ASSERT_INT2_RETURN(cond, v1, v2, ret)  if (unlikely(!(cond))) { carla_safe_assert_int2(#cond, __FILE__, __LINE__, static_cast<int>(v1), static_cast<int>(v2)); return ret; }
 
-#define CARLA_SAFE_ASSERT_UINT_BREAK(cond, value)       if (! (cond)) { carla_safe_assert_uint(#cond, __FILE__, __LINE__, static_cast<uint>(value); break; }
-#define CARLA_SAFE_ASSERT_UINT_CONTINUE(cond, value)    if (! (cond)) { carla_safe_assert_uint(#cond, __FILE__, __LINE__, static_cast<uint>(value)); continue; }
-#define CARLA_SAFE_ASSERT_UINT_RETURN(cond, value, ret) if (! (cond)) { carla_safe_assert_uint(#cond, __FILE__, __LINE__, static_cast<uint>(value)); return ret; }
+#define CARLA_SAFE_ASSERT_UINT_BREAK(cond, value)       if (unlikely(!(cond))) { carla_safe_assert_uint(#cond, __FILE__, __LINE__, static_cast<uint>(value); break; }
+#define CARLA_SAFE_ASSERT_UINT_CONTINUE(cond, value)    if (unlikely(!(cond))) { carla_safe_assert_uint(#cond, __FILE__, __LINE__, static_cast<uint>(value)); continue; }
+#define CARLA_SAFE_ASSERT_UINT_RETURN(cond, value, ret) if (unlikely(!(cond))) { carla_safe_assert_uint(#cond, __FILE__, __LINE__, static_cast<uint>(value)); return ret; }
 
-#define CARLA_SAFE_ASSERT_UINT2_BREAK(cond, v1, v2)       if (! (cond)) { carla_safe_assert_uint2(#cond, __FILE__, __LINE__, static_cast<uint>(v1), static_cast<uint>(v2)); break; }
-#define CARLA_SAFE_ASSERT_UINT2_CONTINUE(cond, v1, v2)    if (! (cond)) { carla_safe_assert_uint2(#cond, __FILE__, __LINE__, static_cast<uint>(v1), static_cast<uint>(v2)); continue; }
-#define CARLA_SAFE_ASSERT_UINT2_RETURN(cond, v1, v2, ret) if (! (cond)) { carla_safe_assert_uint2(#cond, __FILE__, __LINE__, static_cast<uint>(v1), static_cast<uint>(v2)); return ret; }
+#define CARLA_SAFE_ASSERT_UINT2_BREAK(cond, v1, v2)       if (unlikely(!(cond))) { carla_safe_assert_uint2(#cond, __FILE__, __LINE__, static_cast<uint>(v1), static_cast<uint>(v2)); break; }
+#define CARLA_SAFE_ASSERT_UINT2_CONTINUE(cond, v1, v2)    if (unlikely(!(cond))) { carla_safe_assert_uint2(#cond, __FILE__, __LINE__, static_cast<uint>(v1), static_cast<uint>(v2)); continue; }
+#define CARLA_SAFE_ASSERT_UINT2_RETURN(cond, v1, v2, ret) if (unlikely(!(cond))) { carla_safe_assert_uint2(#cond, __FILE__, __LINE__, static_cast<uint>(v1), static_cast<uint>(v2)); return ret; }
 
 #if defined(__GNUC__) && defined(CARLA_PROPER_CPP11_SUPPORT) && ! defined(__clang__)
 # define CARLA_CATCH_UNWIND catch (abi::__forced_unwind&) { throw; }
@@ -217,32 +230,21 @@
 #define CARLA_SAFE_EXCEPTION_CONTINUE(msg)    CARLA_CATCH_UNWIND catch(...) { carla_safe_exception(msg, __FILE__, __LINE__); continue; }
 #define CARLA_SAFE_EXCEPTION_RETURN(msg, ret) CARLA_CATCH_UNWIND catch(...) { carla_safe_exception(msg, __FILE__, __LINE__); return ret; }
 
-/* Define CARLA_DECLARE_NON_COPY_CLASS */
+/* Define CARLA_DECLARE_NON_COPYABLE */
 #ifdef CARLA_PROPER_CPP11_SUPPORT
-# define CARLA_DECLARE_NON_COPY_CLASS(ClassName) \
+# define CARLA_DECLARE_NON_COPYABLE(ClassName) \
 private:                                         \
     ClassName(ClassName&) = delete;              \
     ClassName(const ClassName&) = delete;        \
     ClassName& operator=(ClassName&) = delete;   \
     ClassName& operator=(const ClassName&) = delete;
 #else
-# define CARLA_DECLARE_NON_COPY_CLASS(ClassName) \
+# define CARLA_DECLARE_NON_COPYABLE(ClassName) \
 private:                                         \
     ClassName(ClassName&);                       \
     ClassName(const ClassName&);                 \
     ClassName& operator=(ClassName&);            \
     ClassName& operator=(const ClassName&);
-#endif
-
-/* Define CARLA_DECLARE_NON_COPY_STRUCT */
-#ifdef CARLA_PROPER_CPP11_SUPPORT
-# define CARLA_DECLARE_NON_COPY_STRUCT(StructName) \
-    StructName(StructName&) = delete;              \
-    StructName(const StructName&) = delete;        \
-    StructName& operator=(StructName&) = delete;   \
-    StructName& operator=(const StructName&) = delete;
-#else
-# define CARLA_DECLARE_NON_COPY_STRUCT(StructName)
 #endif
 
 /* Define CARLA_PREVENT_HEAP_ALLOCATION */
@@ -269,19 +271,22 @@ private:                                        \
     static void* operator new(std::size_t);
 #endif
 
+/* CARLA_VISIBLE_SYMBOL */
+#if defined(CARLA_OS_WIN) && ! defined(__WINE__)
+# ifdef BUILDING_CARLA
+#  define CARLA_VISIBLE_SYMBOL __declspec (dllexport)
+# else
+#  define CARLA_VISIBLE_SYMBOL __declspec (dllimport)
+# endif
+#else
+# define CARLA_VISIBLE_SYMBOL __attribute__ ((visibility("default")))
+#endif
+
 /* Define CARLA_API */
-#ifdef BUILD_BRIDGE
+#if defined(BUILD_BRIDGE) || defined(STATIC_PLUGIN_TARGET)
 # define CARLA_API
 #else
-# if defined(CARLA_OS_WIN) && ! defined(__WINE__)
-#  ifdef BUILDING_CARLA
-#   define CARLA_API __declspec (dllexport)
-#  else
-#   define CARLA_API __declspec (dllimport)
-#  endif
-# else
-#  define CARLA_API __attribute__ ((visibility("default")))
-# endif
+# define CARLA_API CARLA_VISIBLE_SYMBOL
 #endif
 
 /* Define CARLA_EXTERN_C */
@@ -291,15 +296,16 @@ private:                                        \
 # define CARLA_EXTERN_C
 #endif
 
-/* Define CARLA_EXPORT */
-#ifdef BUILD_BRIDGE
-# define CARLA_EXPORT CARLA_EXTERN_C
+/* Define CARLA_*_EXPORT */
+#if defined(BUILD_BRIDGE)
+# define CARLA_API_EXPORT CARLA_EXTERN_C
+# define CARLA_PLUGIN_EXPORT CARLA_EXTERN_C
+#elif defined(CARLA_OS_WASM)
+# define CARLA_API_EXPORT CARLA_EXTERN_C CARLA_API
+# define CARLA_PLUGIN_EXPORT CARLA_EXTERN_C __attribute__ ((used))
 #else
-# if defined(CARLA_OS_WIN) && ! defined(__WINE__)
-#  define CARLA_EXPORT CARLA_EXTERN_C CARLA_API
-# else
-#  define CARLA_EXPORT CARLA_EXTERN_C CARLA_API
-# endif
+# define CARLA_API_EXPORT CARLA_EXTERN_C CARLA_API
+# define CARLA_PLUGIN_EXPORT CARLA_EXTERN_C CARLA_VISIBLE_SYMBOL
 #endif
 
 /* Define CARLA_OS_SEP */
@@ -317,8 +323,13 @@ private:                                        \
 
 /* Useful typedefs */
 typedef unsigned char uchar;
-typedef unsigned long int ulong;
 typedef unsigned short int ushort;
 typedef unsigned int uint;
+typedef unsigned long int ulong;
+typedef unsigned long long int ulonglong;
+#ifdef _MSC_VER
+# include <basetsd.h>
+typedef SSIZE_T ssize_t;
+#endif
 
 #endif /* CARLA_DEFINES_H_INCLUDED */

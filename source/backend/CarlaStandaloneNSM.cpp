@@ -1,23 +1,11 @@
-/*
- * Carla Standalone
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "CarlaHostImpl.hpp"
 
-#ifdef HAVE_LIBLO
+#if defined(HAVE_LIBLO) && !defined(CARLA_OS_WASM)
+
+#define CARLA_ENABLE_STANDALONE_NSM
 
 #define NSM_API_VERSION_MAJOR 1
 #define NSM_API_VERSION_MINOR 2
@@ -316,9 +304,7 @@ protected:
             fProjectPath  = projectPath;
             fProjectPath += ".carxp";
 
-            const String jfilename = String(CharPointer_UTF8(fProjectPath));
-
-            if (File(jfilename).existsAsFile())
+            if (File(fProjectPath).existsAsFile())
                 carla_load_project(handle, fProjectPath);
         }
 
@@ -502,7 +488,7 @@ protected:
                         continue;
                     if ((paramData->hints & CB::PARAMETER_IS_ENABLED) == 0)
                         continue;
-                    if ((paramData->hints & CB::PARAMETER_IS_AUTOMABLE) == 0)
+                    if ((paramData->hints & CB::PARAMETER_IS_AUTOMATABLE) == 0)
                         continue;
                     if (paramData->hints & CB::PARAMETER_IS_READ_ONLY)
                         continue;
@@ -635,10 +621,10 @@ private:
     #undef handlePtr
 
     CARLA_PREVENT_HEAP_ALLOCATION
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaNSM)
+    CARLA_DECLARE_NON_COPYABLE(CarlaNSM)
 };
 
-#endif // HAVE_LIBLO
+#endif // CARLA_ENABLE_STANDALONE_NSM
 
 // -------------------------------------------------------------------------------------------------------------------
 
@@ -646,26 +632,26 @@ bool carla_nsm_init(CarlaHostHandle handle, uint64_t pid, const char* executable
 {
     CARLA_SAFE_ASSERT_RETURN(handle->isStandalone, false);
 
-#ifdef HAVE_LIBLO
+   #ifdef CARLA_ENABLE_STANDALONE_NSM
     return CarlaNSM::getInstance(*(CarlaHostStandalone*)handle).announce(pid, executableName);
-#else
+   #else
     return false;
 
     // unused
     (void)pid; (void)executableName;
-#endif
+   #endif
 }
 
 void carla_nsm_ready(CarlaHostHandle handle, NsmCallbackOpcode action)
 {
     CARLA_SAFE_ASSERT_RETURN(handle->isStandalone,);
 
-#ifdef HAVE_LIBLO
+   #ifdef CARLA_ENABLE_STANDALONE_NSM
     CarlaNSM::getInstance(*(CarlaHostStandalone*)handle).ready(action);
-#else
+   #else
     // unused
     return; (void)action;
-#endif
+   #endif
 }
 
 // -------------------------------------------------------------------------------------------------------------------

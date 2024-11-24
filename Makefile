@@ -22,30 +22,48 @@ else
 MODULEDIR := $(CURDIR)/build/modules/Release
 endif
 
-VERSION   := 2.3.2
+# see also cmake/CMakeLists.txt, source/common/__init__.py and source/includes/CarlaDefines.h
+VERSION   := 2.6.0-alpha1
+
+-include Makefile.user.mk
 
 # ---------------------------------------------------------------------------------------------------------------------
 
-all: backend discovery bridges-plugin bridges-ui frontend interposer libjack plugin theme
+TARGETS = backend frontend theme
+
+ifneq ($(WASM),true)
+TARGETS += bridges-plugin bridges-ui discovery interposer libjack plugin
+endif
+
+all: $(TARGETS)
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Binaries (native)
 
+ifneq ($(STATIC_PLUGIN_TARGET),true)
 ALL_LIBS += $(MODULEDIR)/carla_engine.a
+endif
 ALL_LIBS += $(MODULEDIR)/carla_engine_plugin.a
 ALL_LIBS += $(MODULEDIR)/carla_plugin.a
 ALL_LIBS += $(MODULEDIR)/jackbridge.a
+ifeq ($(STATIC_PLUGIN_TARGET),true)
+ALL_LIBS += $(MODULEDIR)/jackbridge.min.a
+endif
 ALL_LIBS += $(MODULEDIR)/native-plugins.a
 ALL_LIBS += $(MODULEDIR)/rtmempool.a
 
 3RD_LIBS += $(MODULEDIR)/audio_decoder.a
 3RD_LIBS += $(MODULEDIR)/lilv.a
+ifneq ($(STATIC_PLUGIN_TARGET),true)
 3RD_LIBS += $(MODULEDIR)/sfzero.a
+endif
 3RD_LIBS += $(MODULEDIR)/water.a
 3RD_LIBS += $(MODULEDIR)/zita-resampler.a
 
 ifeq ($(HAVE_DGL),true)
+ifneq ($(USING_CUSTOM_DPF),true)
 3RD_LIBS += $(MODULEDIR)/dgl.a
+endif
 endif
 
 ifeq ($(HAVE_HYLIA),true)
@@ -60,23 +78,15 @@ ifeq ($(HAVE_QT5),true)
 3RD_LIBS += $(MODULEDIR)/theme.qt5.a
 endif
 
-ifeq ($(USING_JUCE),true)
-3RD_LIBS += $(MODULEDIR)/juce_audio_basics.a
-ifeq ($(USING_JUCE_AUDIO_DEVICES),true)
-3RD_LIBS += $(MODULEDIR)/juce_audio_devices.a
-endif
-3RD_LIBS += $(MODULEDIR)/juce_audio_processors.a
-3RD_LIBS += $(MODULEDIR)/juce_core.a
-3RD_LIBS += $(MODULEDIR)/juce_data_structures.a
-3RD_LIBS += $(MODULEDIR)/juce_events.a
-3RD_LIBS += $(MODULEDIR)/juce_graphics.a
-3RD_LIBS += $(MODULEDIR)/juce_gui_basics.a
-ifeq ($(USING_JUCE_GUI_EXTRA),true)
-3RD_LIBS += $(MODULEDIR)/juce_gui_extra.a
-endif
+ifeq ($(HAVE_QT6),true)
+3RD_LIBS += $(MODULEDIR)/theme.qt6.a
 endif
 
-ifneq ($(USING_JUCE_AUDIO_DEVICES),true)
+ifeq ($(HAVE_YSFX),true)
+3RD_LIBS += $(MODULEDIR)/ysfx.a
+endif
+
+ifeq ($(USING_RTAUDIO),true)
 3RD_LIBS += $(MODULEDIR)/rtaudio.a
 3RD_LIBS += $(MODULEDIR)/rtmidi.a
 endif
@@ -115,36 +125,39 @@ $(MODULEDIR)/theme.qt4.a: .FORCE
 $(MODULEDIR)/theme.qt5.a: .FORCE
 	@$(MAKE) -C source/theme qt5
 
+$(MODULEDIR)/theme.qt6.a: .FORCE
+	@$(MAKE) -C source/theme qt6
+
 $(MODULEDIR)/%.arm32.a: .FORCE
-ifneq ($(WIN32),true)
+ifneq ($(WINDOWS),true)
 	@$(MAKE) -C source/modules/$* arm32
 else
 	$(error Trying to build ARM binaries with a Windows toolchain, this cannot work)
 endif
 
 $(MODULEDIR)/%.posix32.a: .FORCE
-ifneq ($(WIN32),true)
+ifneq ($(WINDOWS),true)
 	@$(MAKE) -C source/modules/$* posix32
 else
 	$(error Trying to build POSIX binaries with a Windows toolchain, this cannot work)
 endif
 
 $(MODULEDIR)/%.posix64.a: .FORCE
-ifneq ($(WIN32),true)
+ifneq ($(WINDOWS),true)
 	@$(MAKE) -C source/modules/$* posix64
 else
 	$(error Trying to build POSIX binaries with a Windows toolchain, this cannot work)
 endif
 
 $(MODULEDIR)/%.win32.a: .FORCE
-ifeq ($(WIN32),true)
+ifeq ($(WINDOWS),true)
 	@$(MAKE) -C source/modules/$* win32
 else
 	$(error Trying to build Windows binaries with a regular toolchain, this cannot work)
 endif
 
 $(MODULEDIR)/%.win64.a: .FORCE
-ifeq ($(WIN32),true)
+ifeq ($(WINDOWS),true)
 	@$(MAKE) -C source/modules/$* win64
 else
 	$(error Trying to build Windows binaries with a regular toolchain, this cannot work)
@@ -173,8 +186,8 @@ bridges-ui: libs
 discovery: libs
 	@$(MAKE) -C source/discovery
 
-frontend: libs
-ifeq ($(HAVE_PYQT),true)
+frontend: backend
+ifeq ($(HAVE_FRONTEND),true)
 	@$(MAKE) -C source/frontend
 endif
 
@@ -195,7 +208,7 @@ lv2-bundles: lv2-bundles-dep
 plugin: backend bridges-plugin bridges-ui discovery
 	@$(MAKE) -C source/plugin
 
-ifeq ($(WIN32),true)
+ifeq ($(WINDOWS),true)
 plugin-wine:
 	@$(MAKE) -C source/plugin wine
 else
@@ -208,6 +221,15 @@ rest: libs
 
 theme: libs
 	@$(MAKE) -C source/theme
+
+# ---------------------------------------------------------------------------------------------------------------------
+# static targets
+
+static-backend: libs
+	@$(MAKE) -C source/backend static
+
+static-plugin: static-backend
+	@$(MAKE) -C source/plugin static
 
 # ---------------------------------------------------------------------------------------------------------------------
 # hacks
@@ -242,19 +264,6 @@ LIBS_POSIX32 += $(MODULEDIR)/lilv.posix32.a
 LIBS_POSIX32 += $(MODULEDIR)/rtmempool.posix32.a
 LIBS_POSIX32 += $(MODULEDIR)/water.posix32.a
 
-ifeq ($(USING_JUCE),true)
-LIBS_POSIX32 += $(MODULEDIR)/juce_audio_basics.posix32.a
-LIBS_POSIX32 += $(MODULEDIR)/juce_audio_processors.posix32.a
-LIBS_POSIX32 += $(MODULEDIR)/juce_data_structures.posix32.a
-LIBS_POSIX32 += $(MODULEDIR)/juce_core.posix32.a
-LIBS_POSIX32 += $(MODULEDIR)/juce_events.posix32.a
-LIBS_POSIX32 += $(MODULEDIR)/juce_graphics.posix32.a
-LIBS_POSIX32 += $(MODULEDIR)/juce_gui_basics.posix32.a
-ifeq ($(USING_JUCE_GUI_EXTRA),true)
-LIBS_POSIX32 += $(MODULEDIR)/juce_gui_extra.posix32.a
-endif
-endif
-
 posix32: $(LIBS_POSIX32)
 	$(MAKE) -C source/bridges-plugin posix32
 	$(MAKE) -C source/discovery posix32
@@ -267,19 +276,6 @@ LIBS_POSIX64 += $(MODULEDIR)/lilv.posix64.a
 LIBS_POSIX64 += $(MODULEDIR)/rtmempool.posix64.a
 LIBS_POSIX64 += $(MODULEDIR)/water.posix64.a
 
-ifeq ($(USING_JUCE),true)
-LIBS_POSIX64 += $(MODULEDIR)/juce_audio_basics.posix64.a
-LIBS_POSIX64 += $(MODULEDIR)/juce_audio_processors.posix64.a
-LIBS_POSIX64 += $(MODULEDIR)/juce_data_structures.posix64.a
-LIBS_POSIX64 += $(MODULEDIR)/juce_core.posix64.a
-LIBS_POSIX64 += $(MODULEDIR)/juce_events.posix64.a
-LIBS_POSIX64 += $(MODULEDIR)/juce_graphics.posix64.a
-LIBS_POSIX64 += $(MODULEDIR)/juce_gui_basics.posix64.a
-ifeq ($(USING_JUCE_GUI_EXTRA),true)
-LIBS_POSIX64 += $(MODULEDIR)/juce_gui_extra.posix64.a
-endif
-endif
-
 posix64: $(LIBS_POSIX64)
 	$(MAKE) -C source/bridges-plugin posix64
 	$(MAKE) -C source/discovery posix64
@@ -291,34 +287,27 @@ LIBS_WIN32 += $(MODULEDIR)/lilv.win32.a
 LIBS_WIN32 += $(MODULEDIR)/rtmempool.win32.a
 LIBS_WIN32 += $(MODULEDIR)/water.win32.a
 
-ifeq ($(USING_JUCE),true)
-LIBS_WIN32 += $(MODULEDIR)/juce_audio_basics.win32.a
-LIBS_WIN32 += $(MODULEDIR)/juce_audio_processors.win32.a
-LIBS_WIN32 += $(MODULEDIR)/juce_data_structures.win32.a
-LIBS_WIN32 += $(MODULEDIR)/juce_core.win32.a
-LIBS_WIN32 += $(MODULEDIR)/juce_events.win32.a
-LIBS_WIN32 += $(MODULEDIR)/juce_graphics.win32.a
-LIBS_WIN32 += $(MODULEDIR)/juce_gui_basics.win32.a
-ifeq ($(USING_JUCE_GUI_EXTRA),true)
-LIBS_WIN32 += $(MODULEDIR)/juce_gui_extra.win32.a
-endif
-endif
-
 LIBS_WINE32 = $(LIBS_WIN32) $(MODULEDIR)/jackbridge.win32e.a
 LIBS_RWIN32 = $(LIBS_WIN32) $(MODULEDIR)/jackbridge.win32.a
 
-win32: $(LIBS_WINE32)
+ifeq ($(CC),x86_64-w64-mingw32-gcc)
+win32:
+	$(MAKE) AR=i686-w64-mingw32-ar CC=i686-w64-mingw32-gcc CXX=i686-w64-mingw32-g++ win32-i686
+
+win32r:
+	$(MAKE) AR=i686-w64-mingw32-ar CC=i686-w64-mingw32-gcc CXX=i686-w64-mingw32-g++ win32r-i686
+else
+win32: win32-i686
+win32r: win32r-i686
+endif
+
+win32-i686: $(LIBS_WINE32)
 	$(MAKE) BUILDING_FOR_WINE=true -C source/bridges-plugin win32
 	$(MAKE) BUILDING_FOR_WINE=true -C source/discovery win32
 
-win32r: $(LIBS_RWIN32)
-ifeq ($(CC),x86_64-w64-mingw32-gcc)
-	$(MAKE) CC=i686-w64-mingw32-gcc CXX=i686-w64-mingw32-g++ -C source/bridges-plugin win32
-	$(MAKE) CC=i686-w64-mingw32-gcc CXX=i686-w64-mingw32-g++ -C source/discovery win32
-else
+win32r-i686: $(LIBS_RWIN32)
 	$(MAKE) -C source/bridges-plugin win32
 	$(MAKE) -C source/discovery win32
-endif
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Binaries (win64)
@@ -326,19 +315,6 @@ endif
 LIBS_WIN64 += $(MODULEDIR)/lilv.win64.a
 LIBS_WIN64 += $(MODULEDIR)/rtmempool.win64.a
 LIBS_WIN64 += $(MODULEDIR)/water.win64.a
-
-ifeq ($(USING_JUCE),true)
-LIBS_WIN64 += $(MODULEDIR)/juce_audio_basics.win64.a
-LIBS_WIN64 += $(MODULEDIR)/juce_audio_processors.win64.a
-LIBS_WIN64 += $(MODULEDIR)/juce_data_structures.win64.a
-LIBS_WIN64 += $(MODULEDIR)/juce_core.win64.a
-LIBS_WIN64 += $(MODULEDIR)/juce_events.win64.a
-LIBS_WIN64 += $(MODULEDIR)/juce_graphics.win64.a
-LIBS_WIN64 += $(MODULEDIR)/juce_gui_basics.win64.a
-ifeq ($(USING_JUCE_GUI_EXTRA),true)
-LIBS_WIN64 += $(MODULEDIR)/juce_gui_extra.win64.a
-endif
-endif
 
 LIBS_WINE64 = $(LIBS_WIN64) $(MODULEDIR)/jackbridge.win64e.a
 LIBS_RWIN64 = $(LIBS_WIN64) $(MODULEDIR)/jackbridge.win64.a
@@ -356,16 +332,20 @@ else
 	$(MAKE) -C source/discovery win64
 endif
 
+mingw64:
+	$(MAKE) AR=i686-w64-mingw32-ar CC=i686-w64-mingw32-gcc CXX=i686-w64-mingw32-g++ win32
+	$(MAKE) AR=x86_64-w64-mingw32-ar CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ win64
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Binaries (wine)
 
 wine32:
 	$(MAKE) -C source/jackbridge wine32
-	cp -f $(MODULEDIR)/jackbridge-wine32.dll.so $(CURDIR)/bin/jackbridge-wine32.dll
+	cp -f $(MODULEDIR)/jackbridge-wine32.dll$(LIB_EXT) $(CURDIR)/bin/jackbridge-wine32.dll
 
 wine64:
 	$(MAKE) -C source/jackbridge wine64
-	cp -f $(MODULEDIR)/jackbridge-wine64.dll.so $(CURDIR)/bin/jackbridge-wine64.dll
+	cp -f $(MODULEDIR)/jackbridge-wine64.dll$(LIB_EXT) $(CURDIR)/bin/jackbridge-wine64.dll
 
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -373,15 +353,18 @@ clean:
 	$(MAKE) clean -C source/backend
 	$(MAKE) clean -C source/bridges-plugin
 	$(MAKE) clean -C source/bridges-ui
+	$(MAKE) clean -C source/jackbridge
+	$(MAKE) clean -C source/modules
+	$(MAKE) clean -C source/native-plugins
+	$(MAKE) clean -C source/plugin
+ifneq ($(STATIC_PLUGIN_TARGET),true)
 	$(MAKE) clean -C source/discovery
 	$(MAKE) clean -C source/frontend
 	$(MAKE) clean -C source/interposer
 	$(MAKE) clean -C source/libjack
-	$(MAKE) clean -C source/modules
-	$(MAKE) clean -C source/native-plugins
-	$(MAKE) clean -C source/plugin
 	$(MAKE) clean -C source/tests
 	$(MAKE) clean -C source/theme
+endif
 	rm -f *~ source/*~
 
 distclean: clean
@@ -421,6 +404,7 @@ else
 endif
 	install -d $(DESTDIR)$(LIBDIR)/pkgconfig
 	install -d $(DESTDIR)$(INCLUDEDIR)/carla/includes
+	install -d $(DESTDIR)$(INCLUDEDIR)/carla/utils
 ifeq ($(LINUX),true)
 ifeq ($(HAVE_JACK),true)
 ifeq ($(JACKBRIDGE_DIRECT),true)
@@ -429,9 +413,10 @@ endif
 endif
 endif
 
-ifeq ($(HAVE_PYQT),true)
-	# Create directories (gui)
+ifeq ($(HAVE_FRONTEND),true)
+	# Create directories (frontend)
 	install -d $(DESTDIR)$(LIBDIR)/carla/styles
+	install -d $(DESTDIR)$(PREFIX)/share/appdata
 	install -d $(DESTDIR)$(DATADIR)/applications
 	install -d $(DESTDIR)$(DATADIR)/icons/hicolor/16x16/apps
 	install -d $(DESTDIR)$(DATADIR)/icons/hicolor/32x32/apps
@@ -441,8 +426,11 @@ ifeq ($(HAVE_PYQT),true)
 	install -d $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
 	install -d $(DESTDIR)$(DATADIR)/mime/packages
 	install -d $(DESTDIR)$(DATADIR)/carla/resources/translations
+	install -d $(DESTDIR)$(DATADIR)/carla/common
+	install -d $(DESTDIR)$(DATADIR)/carla/dialogs
 	install -d $(DESTDIR)$(DATADIR)/carla/modgui
 	install -d $(DESTDIR)$(DATADIR)/carla/patchcanvas
+	install -d $(DESTDIR)$(DATADIR)/carla/utils
 	install -d $(DESTDIR)$(DATADIR)/carla/widgets
 endif
 
@@ -488,7 +476,7 @@ endif
 
 	# Install pkg-config files
 	install -m 644 \
-		data/*.pc \
+		data/pkgconfig/*.pc \
 		$(DESTDIR)$(LIBDIR)/pkgconfig
 
 	# Adjust PREFIX, LIBDIR, INCLUDEDIR and VERSION in pkg-config files
@@ -523,7 +511,7 @@ endif
 		source/backend/CarlaUtils.h \
 		source/backend/CarlaEngine.hpp \
 		source/backend/CarlaPlugin.hpp \
-		source/includes/CarlaNative.h \
+		source/backend/CarlaPluginPtr.hpp \
 		$(DESTDIR)$(INCLUDEDIR)/carla
 
 	install -m 644 \
@@ -533,9 +521,32 @@ endif
 		source/includes/CarlaNativePlugin.h \
 		$(DESTDIR)$(INCLUDEDIR)/carla/includes
 
+	install -m 644 \
+		source/utils/CarlaBackendUtils.hpp \
+		source/utils/CarlaBase64Utils.hpp \
+		source/utils/CarlaBinaryUtils.hpp \
+		source/utils/CarlaBridgeDefines.hpp \
+		source/utils/CarlaBridgeUtils.hpp \
+		source/utils/CarlaMacUtils.hpp \
+		source/utils/CarlaMathUtils.hpp \
+		source/utils/CarlaMemUtils.hpp \
+		source/utils/CarlaMutex.hpp \
+		source/utils/CarlaRingBuffer.hpp \
+		source/utils/CarlaProcessUtils.hpp \
+		source/utils/CarlaRunner.hpp \
+		source/utils/CarlaScopeUtils.hpp \
+		source/utils/CarlaSemUtils.hpp \
+		source/utils/CarlaSha1Utils.hpp \
+		source/utils/CarlaShmUtils.hpp \
+		source/utils/CarlaString.hpp \
+		source/utils/CarlaThread.hpp \
+		source/utils/CarlaTimeUtils.hpp \
+		source/utils/CarlaUtils.hpp \
+		$(DESTDIR)$(INCLUDEDIR)/carla/utils
+
 	# -------------------------------------------------------------------------------------------------------------
 
-ifeq ($(HAVE_PYQT),true)
+ifeq ($(HAVE_FRONTEND),true)
 ifneq ($(CPPMODE),true)
 	# Install script files (gui)
 	install -m 755 \
@@ -591,12 +602,24 @@ endif
 		$(DESTDIR)$(DATADIR)/carla/
 
 	install -m 644 \
+		source/frontend/common/*.py \
+		$(DESTDIR)$(DATADIR)/carla/common/
+
+	install -m 644 \
+		source/frontend/dialogs/*.py \
+		$(DESTDIR)$(DATADIR)/carla/dialogs/
+
+	install -m 644 \
 		source/frontend/modgui/*.py \
 		$(DESTDIR)$(DATADIR)/carla/modgui/
 
 	install -m 644 \
 		source/frontend/patchcanvas/*.py \
 		$(DESTDIR)$(DATADIR)/carla/patchcanvas/
+
+	install -m 644 \
+		source/frontend/utils/*.py \
+		$(DESTDIR)$(DATADIR)/carla/utils/
 
 	install -m 644 \
 		source/frontend/widgets/*.py \
@@ -634,6 +657,10 @@ ifeq ($(HAVE_LIBLO),true)
 	install -m 644 data/desktop/carla-control.desktop     $(DESTDIR)$(DATADIR)/applications
 endif
 
+	# Install app data
+	sed -e 's?X-VERSION-X?$(VERSION)?' \
+		data/appdata.xml.in > $(DESTDIR)$(PREFIX)/share/appdata/studio.kx.carla.appdata.xml
+
 	# Install mime package
 	install -m 644 data/carla.xml $(DESTDIR)$(DATADIR)/mime/packages
 
@@ -662,13 +689,16 @@ endif
 	install -m 644 resources/scalable/carla-control.svg $(DESTDIR)$(DATADIR)/icons/hicolor/scalable/apps
 
 	# Install resources (re-use python files)
+	$(LINK) ../common                      $(DESTDIR)$(DATADIR)/carla/resources
+	$(LINK) ../dialogs                     $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../modgui                      $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../patchcanvas                 $(DESTDIR)$(DATADIR)/carla/resources
+	$(LINK) ../utils                       $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../widgets                     $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../carla_app.py                $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../carla_backend.py            $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../carla_backend_qt.py         $(DESTDIR)$(DATADIR)/carla/resources
-	$(LINK) ../carla_database.py           $(DESTDIR)$(DATADIR)/carla/resources
+	$(LINK) ../carla_frontend.py           $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../carla_host.py               $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../carla_host_control.py       $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../carla_settings.py           $(DESTDIR)$(DATADIR)/carla/resources
@@ -677,11 +707,10 @@ endif
 	$(LINK) ../carla_utils.py              $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../carla_widgets.py            $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../externalui.py               $(DESTDIR)$(DATADIR)/carla/resources
+	$(LINK) ../qt_compat.py                $(DESTDIR)$(DATADIR)/carla/resources
+	$(LINK) ../qt_config.py                $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../resources_rc.py             $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../ui_carla_about.py           $(DESTDIR)$(DATADIR)/carla/resources
-	$(LINK) ../ui_carla_about_juce.py      $(DESTDIR)$(DATADIR)/carla/resources
-	$(LINK) ../ui_carla_add_jack.py        $(DESTDIR)$(DATADIR)/carla/resources
-	$(LINK) ../ui_carla_database.py        $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../ui_carla_edit.py            $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../ui_carla_host.py            $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../ui_carla_parameter.py       $(DESTDIR)$(DATADIR)/carla/resources
@@ -690,17 +719,21 @@ endif
 	$(LINK) ../ui_carla_plugin_compact.py  $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../ui_carla_plugin_default.py  $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../ui_carla_plugin_presets.py  $(DESTDIR)$(DATADIR)/carla/resources
-	$(LINK) ../ui_carla_refresh.py         $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../ui_carla_settings.py        $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../ui_carla_settings_driver.py $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../ui_inputdialog_value.py     $(DESTDIR)$(DATADIR)/carla/resources
 	$(LINK) ../ui_midipattern.py           $(DESTDIR)$(DATADIR)/carla/resources
+	$(LINK) ../ui_xycontroller.py          $(DESTDIR)$(DATADIR)/carla/resources
 
 	# Install translations
 	$(foreach l,$(I18N_LANGUAGES),install -m 644 \
 		source/frontend/translations/carla_$(l).qm \
 		$(DESTDIR)$(DATADIR)/carla/resources/translations/;)
-endif # HAVE_PYQT
+
+	# Link resources for internal plugin
+	rm -rf $(DESTDIR)$(LIBDIR)/carla/resources
+	$(LINK) ../../share/carla/resources $(DESTDIR)$(LIBDIR)/carla/resources
+endif # HAVE_FRONTEND
 
 	# -------------------------------------------------------------------------------------------------------------
 
@@ -726,7 +759,7 @@ ifeq ($(LINUX),true)
 endif
 endif # CAN_GENERATE_LV2_TTL
 
-ifeq ($(HAVE_PYQT),true)
+ifeq ($(HAVE_FRONTEND),true)
 	# Link resources for lv2 plugin
 	rm -rf $(DESTDIR)$(LIBDIR)/lv2/carla.lv2/resources
 	$(LINK) ../../../share/carla/resources $(DESTDIR)$(LIBDIR)/lv2/carla.lv2/resources
@@ -739,7 +772,7 @@ endif
 	# -------------------------------------------------------------------------------------------------------------
 
 ifneq ($(HAIKU),true)
-ifeq ($(HAVE_PYQT),true)
+ifeq ($(HAVE_FRONTEND),true)
 	# Install vst plugin
 	install -d $(DESTDIR)$(LIBDIR)/vst/carla.vst
 
@@ -770,7 +803,7 @@ endif
 
 	# -------------------------------------------------------------------------------------------------------------
 
-ifneq ($(HAVE_PYQT),true)
+ifneq ($(HAVE_FRONTEND),true)
 	# Remove gui files for non-gui build
 	rm $(DESTDIR)$(LIBDIR)/carla/carla-bridge-lv2-modgui
 ifeq ($(CAN_GENERATE_LV2_TTL),true)
@@ -816,7 +849,7 @@ HAVE_DIST = true
 endif
 endif
 
-ifeq ($(WIN32),true)
+ifeq ($(WINDOWS),true)
 HAVE_DIST = true
 endif
 

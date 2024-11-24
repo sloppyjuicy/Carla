@@ -48,6 +48,8 @@ from carla_backend import (
     PLUGIN_SF2,
     PLUGIN_SFZ,
     PLUGIN_JACK,
+    PLUGIN_JSFX,
+    PLUGIN_CLAP,
     PLUGIN_CATEGORY_NONE,
     PLUGIN_CATEGORY_SYNTH,
     PLUGIN_CATEGORY_DELAY,
@@ -94,6 +96,10 @@ def getPluginTypeAsString(ptype):
         return "SFZ"
     if ptype == PLUGIN_JACK:
         return "JACK"
+    if ptype == PLUGIN_JSFX:
+        return "JSFX"
+    if ptype == PLUGIN_CLAP:
+        return "CLAP"
 
     print("getPluginTypeAsString(%i) - invalid type" % ptype)
     return "Unknown"
@@ -130,6 +136,10 @@ def getPluginTypeFromString(stype):
         return PLUGIN_SFZ
     if stype == "jack":
         return PLUGIN_JACK
+    if stype == "jsfx":
+        return PLUGIN_JSFX
+    if stype == "clap":
+        return PLUGIN_CLAP
 
     print("getPluginTypeFromString(\"%s\") - invalid string type" % stype)
     return PLUGIN_NONE
@@ -252,9 +262,6 @@ class CarlaUtils():
         self.lib.carla_get_complete_license_text.argtypes = None
         self.lib.carla_get_complete_license_text.restype = c_char_p
 
-        self.lib.carla_get_juce_version.argtypes = None
-        self.lib.carla_get_juce_version.restype = c_char_p
-
         self.lib.carla_get_supported_file_extensions.argtypes = None
         self.lib.carla_get_supported_file_extensions.restype = POINTER(c_char_p)
 
@@ -318,14 +325,8 @@ class CarlaUtils():
         self.lib.carla_pipe_client_destroy.argtypes = [CarlaPipeClientHandle]
         self.lib.carla_pipe_client_destroy.restype = None
 
-        self.lib.carla_juce_init.argtypes = None
-        self.lib.carla_juce_init.restype = None
-
-        self.lib.carla_juce_idle.argtypes = None
-        self.lib.carla_juce_idle.restype = None
-
-        self.lib.carla_juce_cleanup.argtypes = None
-        self.lib.carla_juce_cleanup.restype = None
+        self.lib.carla_get_desktop_scale_factor.argtypes = None
+        self.lib.carla_get_desktop_scale_factor.restype = c_double
 
         self.lib.carla_cocoa_get_window.argtypes = [c_uintptr]
         self.lib.carla_cocoa_get_window.restype = c_int
@@ -385,10 +386,6 @@ class CarlaUtils():
     # Returned string is in basic html format.
     def get_complete_license_text(self):
         return charPtrToString(self.lib.carla_get_complete_license_text())
-
-    # Get the juce version used in the current Carla build.
-    def get_juce_version(self):
-        return charPtrToString(self.lib.carla_get_juce_version())
 
     # Get the list of supported file extensions in carla_load_file().
     def get_supported_file_extensions(self):
@@ -471,14 +468,8 @@ class CarlaUtils():
     def pipe_client_destroy(self, handle):
         self.lib.carla_pipe_client_destroy(handle)
 
-    def juce_init(self):
-        self.lib.carla_juce_init()
-
-    def juce_idle(self):
-        self.lib.carla_juce_idle()
-
-    def juce_cleanup(self):
-        self.lib.carla_juce_cleanup()
+    def get_desktop_scale_factor(self):
+        return float(self.lib.carla_get_desktop_scale_factor())
 
     def cocoa_get_window(self, winId):
         return self.lib.carla_cocoa_get_window(winId)

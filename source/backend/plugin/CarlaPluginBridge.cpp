@@ -1,6 +1,6 @@
 /*
  * Carla Plugin Bridge
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2011-2024 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -25,6 +25,7 @@
 #include "CarlaPipeUtils.hpp"
 #include "CarlaScopeUtils.hpp"
 #include "CarlaShmUtils.hpp"
+#include "CarlaTimeUtils.hpp"
 #include "CarlaThread.hpp"
 
 #include "jackbridge/JackBridge.hpp"
@@ -35,23 +36,23 @@
 #include "water/misc/Time.h"
 #include "water/threads/ChildProcess.h"
 
-// ---------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
 using water::ChildProcess;
 using water::File;
 using water::String;
 using water::StringArray;
-using water::Time;
 
 CARLA_BACKEND_START_NAMESPACE
 
-// ---------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 // Fallback data
 
 static const ExternalMidiNote kExternalMidiNoteFallback = { -1, 0, 0 };
 
-// ---------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
+#ifndef CARLA_OS_WIN
 static String findWinePrefix(const String filename, const int recursionLimit = 10)
 {
     if (recursionLimit == 0 || filename.length() < 5 || ! filename.contains("/"))
@@ -59,13 +60,14 @@ static String findWinePrefix(const String filename, const int recursionLimit = 1
 
     const String path(filename.upToLastOccurrenceOf("/", false, false));
 
-    if (File(path + "/dosdevices").isDirectory())
+    if (File(String(path + "/dosdevices").toRawUTF8()).isDirectory())
         return path;
 
     return findWinePrefix(path, recursionLimit-1);
 }
+#endif
 
-// ---------------------------------------------------------------------------------------------------------------------
+// --------------------------------------------------------------------------------------------------------------------
 
 struct BridgeParamInfo {
     float value;
@@ -79,10 +81,43 @@ struct BridgeParamInfo {
           symbol(),
           unit() {}
 
-    CARLA_DECLARE_NON_COPY_STRUCT(BridgeParamInfo)
+    CARLA_DECLARE_NON_COPYABLE(BridgeParamInfo)
 };
 
-// ---------------------------------------------------------------------------------------------------------------------
+struct BridgeTextReader {
+    char* text;
+
+    BridgeTextReader(BridgeNonRtServerControl& nonRtServerCtrl)
+        : text(nullptr)
+    {
+        const uint32_t size = nonRtServerCtrl.readUInt();
+        CARLA_SAFE_ASSERT_RETURN(size != 0,);
+
+        text = new char[size + 1];
+        nonRtServerCtrl.readCustomData(text, size);
+        text[size] = '\0';
+    }
+
+    BridgeTextReader(BridgeNonRtServerControl& nonRtServerCtrl, const uint32_t size)
+        : text(nullptr)
+    {
+        text = new char[size + 1];
+
+        if (size != 0)
+            nonRtServerCtrl.readCustomData(text, size);
+
+        text[size] = '\0';
+    }
+
+    ~BridgeTextReader() noexcept
+    {
+        delete[] text;
+    }
+
+    CARLA_DECLARE_NON_COPYABLE(BridgeTextReader)
+};
+
+// --------------------------------------------------------------------------------------------------------------------
 
 class CarlaPluginBridgeThread : public CarlaThread
 {
@@ -95,15 +130,15 @@ public:
           fBridgeBinary(),
           fLabel(),
           fShmIds(),
-#ifndef CARLA_OS_WIN
+         #ifndef CARLA_OS_WIN
           fWinePrefix(),
-#endif
+         #endif
           fProcess() {}
 
     void setData(
-#ifndef CARLA_OS_WIN
+                #ifndef CARLA_OS_WIN
                  const char* const winePrefix,
-#endif
+                #endif
                  const char* const binaryArchName,
                  const char* const bridgeBinary,
                  const char* const label,
@@ -113,9 +148,9 @@ public:
         CARLA_SAFE_ASSERT_RETURN(shmIds != nullptr && shmIds[0] != '\0',);
         CARLA_SAFE_ASSERT(! isThreadRunning());
 
-#ifndef CARLA_OS_WIN
+       #ifndef CARLA_OS_WIN
         fWinePrefix = winePrefix;
-#endif
+       #endif
         fBinaryArchName = binaryArchName;
         fBridgeBinary = bridgeBinary;
         fShmIds = shmIds;
@@ -157,7 +192,7 @@ protected:
 
         StringArray arguments;
 
-#ifndef CARLA_OS_WIN
+       #ifndef CARLA_OS_WIN
         // start with "wine" if needed
         if (fBridgeBinary.endsWithIgnoreCase(".exe"))
         {
@@ -169,7 +204,7 @@ protected:
 
                 if (fBridgeBinary.endsWithIgnoreCase("64.exe")
                     && options.wine.executable[0] == CARLA_OS_SEP
-                    && File(wineCMD + "64").existsAsFile())
+                    && File(String(wineCMD + "64").toRawUTF8()).existsAsFile())
                     wineCMD += "64";
             }
             else
@@ -179,7 +214,7 @@ protected:
 
             arguments.add(wineCMD);
         }
-#endif
+       #endif
 
         // setup binary arch
         ChildProcess::Type childType;
@@ -212,10 +247,10 @@ protected:
         {
             const ScopedEngineEnvironmentLocker _seel(kEngine);
 
-#ifdef CARLA_OS_LINUX
+           #ifdef CARLA_OS_LINUX
             const CarlaScopedEnvVar sev1("LD_LIBRARY_PATH", nullptr);
             const CarlaScopedEnvVar sev2("LD_PRELOAD", nullptr);
-#endif
+           #endif
 
             carla_setenv("ENGINE_OPTION_FORCE_STEREO",          bool2str(options.forceStereo));
             carla_setenv("ENGINE_OPTION_PREFER_PLUGIN_BRIDGES", bool2str(options.preferPluginBridges));
@@ -263,6 +298,11 @@ protected:
             else
                 carla_setenv("ENGINE_OPTION_PLUGIN_PATH_SFZ", "");
 
+            if (options.pathJSFX != nullptr)
+                carla_setenv("ENGINE_OPTION_PLUGIN_PATH_JSFX", options.pathJSFX);
+            else
+                carla_setenv("ENGINE_OPTION_PLUGIN_PATH_JSFX", "");
+
             if (options.binaryDir != nullptr)
                 carla_setenv("ENGINE_OPTION_PATH_BINARIES", options.binaryDir);
             else
@@ -280,11 +320,11 @@ protected:
 
             carla_setenv("ENGINE_BRIDGE_SHM_IDS", fShmIds.toRawUTF8());
 
-#ifndef CARLA_OS_WIN
+           #ifndef CARLA_OS_WIN
             if (fWinePrefix.isNotEmpty())
             {
                 carla_setenv("WINEDEBUG", "-all");
-                carla_setenv("WINEPREFIX", fWinePrefix.toRawUTF8());
+                carla_setenv("WINEPREFIX", fWinePrefix.buffer());
 
                 if (options.wine.rtPrio)
                 {
@@ -301,7 +341,7 @@ protected:
                     carla_setenv("WINE_SVR_RT", strBuf);
 
                     carla_stdout("Using WINEPREFIX '%s', with base RT prio %i and server RT prio %i",
-                                fWinePrefix.toRawUTF8(), options.wine.baseRtPrio, options.wine.serverRtPrio);
+                                 fWinePrefix.buffer(), options.wine.baseRtPrio, options.wine.serverRtPrio);
                 }
                 else
                 {
@@ -313,15 +353,15 @@ protected:
                     carla_unsetenv("WINE_RT_PRIO");
                     carla_unsetenv("WINE_SVR_RT");
 
-                    carla_stdout("Using WINEPREFIX '%s', without RT priorities", fWinePrefix.toRawUTF8());
+                    carla_stdout("Using WINEPREFIX '%s', without RT priorities", fWinePrefix.buffer());
                 }
             }
-#endif
+           #endif
 
             carla_stdout("Starting plugin bridge, command is:\n%s \"%s\" \"%s\" \"%s\" " P_INT64,
                          fBridgeBinary.toRawUTF8(), getPluginTypeAsString(kPlugin->getType()), filename.toRawUTF8(), fLabel.toRawUTF8(), kPlugin->getUniqueId());
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+           #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
             const File projFolder(kEngine->getCurrentProjectFolder());
 
             if (projFolder.isNotNull())
@@ -332,7 +372,7 @@ protected:
                 oldFolder.setAsCurrentWorkingDirectory();
             }
             else
-#endif
+           #endif
             {
                 started = fProcess->start(arguments, childType);
             }
@@ -374,7 +414,7 @@ protected:
                                         "Saving now will lose its current settings.\n"
                                         "Please remove this plugin, and not rely on it from this point.");
                 kEngine->callback(true, true,
-                                  CarlaBackend::ENGINE_CALLBACK_ERROR, kPlugin->getId(), 0, 0, 0, 0.0f, errorString);
+                                  ENGINE_CALLBACK_ERROR, kPlugin->getId(), 0, 0, 0, 0.0f, errorString);
             }
         }
 
@@ -389,9 +429,9 @@ private:
     String fBridgeBinary;
     String fLabel;
     String fShmIds;
-#ifndef CARLA_OS_WIN
-    String fWinePrefix;
-#endif
+   #ifndef CARLA_OS_WIN
+    CarlaString fWinePrefix;
+   #endif
 
     CarlaScopedPointer<ChildProcess> fProcess;
 
@@ -415,15 +455,16 @@ public:
           fTimedError(false),
           fBufferSize(engine->getBufferSize()),
           fProcWaitTime(0),
+          fPendingEmbedCustomUI(0),
           fBridgeBinary(),
           fBridgeThread(engine, this),
           fShmAudioPool(),
           fShmRtClientControl(),
           fShmNonRtClientControl(),
           fShmNonRtServerControl(),
-#ifndef CARLA_OS_WIN
+         #ifndef CARLA_OS_WIN
           fWinePrefix(),
-#endif
+         #endif
           fReceivingParamText(),
           fInfo(),
           fUniqueId(0),
@@ -439,11 +480,11 @@ public:
     {
         carla_debug("CarlaPluginBridge::~CarlaPluginBridge()");
 
-#ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
+       #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
         // close UI
         if (pData->hints & PLUGIN_HAS_CUSTOM_UI)
             pData->transientTryCounter = 0;
-#endif
+       #endif
 
         pData->singleMutex.lock();
         pData->masterMutex.lock();
@@ -649,10 +690,10 @@ public:
         if (fReceivingParamText.wasDataReceived(&success))
             return success;
 
-        const uint32_t timeoutEnd = Time::getMillisecondCounter() + 500; // 500 ms
+        const uint32_t timeoutEnd = carla_gettime_ms() + 500; // 500 ms
         const bool needsEngineIdle = pData->engine->getType() != kEngineTypePlugin;
 
-        for (; Time::getMillisecondCounter() < timeoutEnd && fBridgeThread.isThreadRunning();)
+        for (; carla_gettime_ms() < timeoutEnd && fBridgeThread.isThreadRunning();)
         {
             if (fReceivingParamText.wasDataReceived(&success))
                 return success;
@@ -679,10 +720,10 @@ public:
             return;
 
         // TODO: only wait 1 minute for NI plugins
-        const uint32_t timeoutEnd = Time::getMillisecondCounter() + 60*1000; // 60 secs, 1 minute
+        const uint32_t timeoutEnd = carla_gettime_ms() + 60*1000; // 60 secs, 1 minute
         const bool needsEngineIdle = pData->engine->getType() != kEngineTypePlugin;
 
-        for (; Time::getMillisecondCounter() < timeoutEnd && fBridgeThread.isThreadRunning();)
+        for (; carla_gettime_ms() < timeoutEnd && fBridgeThread.isThreadRunning();)
         {
             pData->engine->callback(true, true, ENGINE_CALLBACK_IDLE, 0, 0, 0, 0, 0.0f, nullptr);
 
@@ -765,7 +806,7 @@ public:
         CarlaPlugin::setParameterValue(parameterId, fixedValue, sendGui, sendOsc, sendCallback);
     }
 
-    void setParameterValueRT(const uint32_t parameterId, const float value, const bool sendCallbackLater) noexcept override
+    void setParameterValueRT(const uint32_t parameterId, const float value, const uint32_t frameOffset, const bool sendCallbackLater) noexcept override
     {
         CARLA_SAFE_ASSERT_RETURN(parameterId < pData->param.count,);
 
@@ -782,7 +823,7 @@ public:
             fShmNonRtClientControl.waitIfDataIsReachingLimit();
         }
 
-        CarlaPlugin::setParameterValueRT(parameterId, fixedValue, sendCallbackLater);
+        CarlaPlugin::setParameterValueRT(parameterId, fixedValue, frameOffset, sendCallbackLater);
     }
 
     void setParameterMidiChannel(const uint32_t parameterId, const uint8_t channel, const bool sendOsc, const bool sendCallback) noexcept override
@@ -924,12 +965,17 @@ public:
             return;
         }
 
-        const uint32_t typeLen(static_cast<uint32_t>(std::strlen(type)));
-        const uint32_t keyLen(static_cast<uint32_t>(std::strlen(key)));
-        const uint32_t valueLen(static_cast<uint32_t>(std::strlen(value)));
+        const uint32_t maxLocalValueLen = fBridgeVersion >= 10 ? 4096 : 16384;
+
+        const uint32_t typeLen  = static_cast<uint32_t>(std::strlen(type));
+        const uint32_t keyLen   = static_cast<uint32_t>(std::strlen(key));
+        const uint32_t valueLen = static_cast<uint32_t>(std::strlen(value));
 
         {
             const CarlaMutexLocker _cml(fShmNonRtClientControl.mutex);
+
+            if (valueLen > maxLocalValueLen)
+                fShmNonRtClientControl.waitIfDataIsReachingLimit();
 
             fShmNonRtClientControl.writeOpcode(kPluginBridgeNonRtClientSetCustomData);
 
@@ -942,7 +988,31 @@ public:
             fShmNonRtClientControl.writeUInt(valueLen);
 
             if (valueLen > 0)
-                fShmNonRtClientControl.writeCustomData(value, valueLen);
+            {
+                if (valueLen > maxLocalValueLen)
+                {
+                    String filePath(File::getSpecialLocation(File::tempDirectory).getFullPathName());
+
+                    filePath += CARLA_OS_SEP_STR ".CarlaCustomData_";
+                    filePath += fShmAudioPool.getFilenameSuffix();
+
+                    if (File(filePath.toRawUTF8()).replaceWithText(value))
+                    {
+                        const uint32_t ulength = static_cast<uint32_t>(filePath.length());
+
+                        fShmNonRtClientControl.writeUInt(ulength);
+                        fShmNonRtClientControl.writeCustomData(filePath.toRawUTF8(), ulength);
+                    }
+                    else
+                    {
+                        fShmNonRtClientControl.writeUInt(0);
+                    }
+                }
+                else
+                {
+                    fShmNonRtClientControl.writeCustomData(value, valueLen);
+                }
+            }
 
             fShmNonRtClientControl.commitWrite();
         }
@@ -964,9 +1034,9 @@ public:
         filePath += CARLA_OS_SEP_STR ".CarlaChunk_";
         filePath += fShmAudioPool.getFilenameSuffix();
 
-        if (File(filePath).replaceWithText(dataBase64.buffer()))
+        if (File(filePath.toRawUTF8()).replaceWithText(dataBase64.buffer()))
         {
-            const uint32_t ulength(static_cast<uint32_t>(filePath.length()));
+            const uint32_t ulength = static_cast<uint32_t>(filePath.length());
 
             const CarlaMutexLocker _cml(fShmNonRtClientControl.mutex);
 
@@ -1029,6 +1099,44 @@ public:
             pData->transientTryCounter = 0;
         }
 #endif
+    }
+
+    void* embedCustomUI(void* const ptr) override
+    {
+        if (fBridgeVersion < 9)
+            return nullptr;
+
+        fPendingEmbedCustomUI = 0;
+
+        {
+            const CarlaMutexLocker _cml(fShmNonRtClientControl.mutex);
+
+            fShmNonRtClientControl.writeOpcode(kPluginBridgeNonRtClientEmbedUI);
+            fShmNonRtClientControl.writeULong(reinterpret_cast<uint64_t>(ptr));
+            fShmNonRtClientControl.commitWrite();
+        }
+
+        const uint32_t timeoutEnd = carla_gettime_ms() + 15*1000; // 15 secs
+        const bool needsEngineIdle = pData->engine->getType() != kEngineTypePlugin;
+
+        for (; carla_gettime_ms() < timeoutEnd && fBridgeThread.isThreadRunning();)
+        {
+            pData->engine->callback(true, true, ENGINE_CALLBACK_IDLE, 0, 0, 0, 0, 0.0f, nullptr);
+
+            if (needsEngineIdle)
+                pData->engine->idle();
+
+            if (fPendingEmbedCustomUI != 0)
+            {
+                if (fPendingEmbedCustomUI == 1)
+                    fPendingEmbedCustomUI = 0;
+                break;
+            }
+
+            carla_msleep(20);
+        }
+
+        return reinterpret_cast<void*>(fPendingEmbedCustomUI);
     }
 
     void idle() override
@@ -1430,7 +1538,7 @@ public:
 
                             ctrlEvent.handled = true;
                             value = pData->param.getFinalUnnormalizedValue(k, ctrlEvent.normalizedValue);
-                            setParameterValueRT(k, value, true);
+                            setParameterValueRT(k, value, event.time, true);
                             continue;
                         }
 
@@ -1486,12 +1594,12 @@ public:
                                 continue;
                             if (pData->param.data[k].type != PARAMETER_INPUT)
                                 continue;
-                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMABLE) == 0)
+                            if ((pData->param.data[k].hints & PARAMETER_IS_AUTOMATABLE) == 0)
                                 continue;
 
                             ctrlEvent.handled = true;
                             value = pData->param.getFinalUnnormalizedValue(k, ctrlEvent.normalizedValue);
-                            setParameterValueRT(k, value, true);
+                            setParameterValueRT(k, value, event.time, true);
                         }
 
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
@@ -1507,7 +1615,7 @@ public:
                             fShmRtClientControl.writeByte(3); // size
                             fShmRtClientControl.writeByte(uint8_t(MIDI_STATUS_CONTROL_CHANGE | (event.channel & MIDI_CHANNEL_BIT)));
                             fShmRtClientControl.writeByte(uint8_t(ctrlEvent.param));
-                            fShmRtClientControl.writeByte(uint8_t(ctrlEvent.normalizedValue*127.0f));
+                            fShmRtClientControl.writeByte(uint8_t(ctrlEvent.normalizedValue*127.0f + 0.5f));
                         }
                         break;
                     }
@@ -1684,12 +1792,16 @@ public:
                     break;
 
                 // store midi data advancing as needed
-                uint8_t data[size];
+                uint8_t data[4];
 
-                for (uint8_t j=0; j<size; ++j)
-                    data[j] = *midiData++;
+                {
+                    uint8_t j=0;
+                    for (; j<size && j<4; ++j)
+                        data[j] = *midiData++;
+                }
 
-                pData->event.portOut->writeMidiEvent(time, size, data);
+                if (size <= 4)
+                    pData->event.portOut->writeMidiEvent(time, size, data);
 
                 read += kBridgeBaseMidiOutHeaderSize + size;
             }
@@ -1809,7 +1921,8 @@ public:
             const bool isMono    = (pData->audioIn.count == 1);
 
             bool isPair;
-            float bufValue, oldBufLeft[doBalance ? frames : 1];
+            float bufValue;
+            float* const oldBufLeft = pData->postProc.extraBuffer;
 
             for (uint32_t i=0; i < pData->audioOut.count; ++i)
             {
@@ -1927,6 +2040,8 @@ public:
         fProcWaitTime = 1000;
 
         waitForClient("buffersize", 1000);
+
+        CarlaPlugin::bufferSizeChanged(newBufferSize);
     }
 
     void sampleRateChanged(const double newSampleRate) override
@@ -2088,6 +2203,13 @@ public:
                 pData->hints   = hints | PLUGIN_IS_BRIDGE;
                 pData->options = optionEn;
 
+               #ifdef HAVE_X11
+                if (fBridgeVersion < 9 || fBinaryType == BINARY_WIN32 || fBinaryType == BINARY_WIN64)
+               #endif
+                {
+                    pData->hints &= ~PLUGIN_HAS_CUSTOM_EMBED_UI;
+                }
+
                 fInfo.category = static_cast<PluginCategory>(category);
                 fInfo.optionsAvailable = optionAv;
             }   break;
@@ -2096,36 +2218,25 @@ public:
                 // uint/size, str[] (realName), uint/size, str[] (label), uint/size, str[] (maker), uint/size, str[] (copyright)
 
                 // realName
-                const uint32_t realNameSize(fShmNonRtServerControl.readUInt());
-                char realName[realNameSize+1];
-                carla_zeroChars(realName, realNameSize+1);
-                fShmNonRtServerControl.readCustomData(realName, realNameSize);
+                BridgeTextReader realName(fShmNonRtServerControl);
 
                 // label
-                const uint32_t labelSize(fShmNonRtServerControl.readUInt());
-                char label[labelSize+1];
-                carla_zeroChars(label, labelSize+1);
-                fShmNonRtServerControl.readCustomData(label, labelSize);
+                BridgeTextReader label(fShmNonRtServerControl);
 
                 // maker
-                const uint32_t makerSize(fShmNonRtServerControl.readUInt());
-                char maker[makerSize+1];
-                carla_zeroChars(maker, makerSize+1);
-                fShmNonRtServerControl.readCustomData(maker, makerSize);
+                BridgeTextReader maker(fShmNonRtServerControl);
 
                 // copyright
-                const uint32_t copyrightSize(fShmNonRtServerControl.readUInt());
-                char copyright[copyrightSize+1];
-                carla_zeroChars(copyright, copyrightSize+1);
-                fShmNonRtServerControl.readCustomData(copyright, copyrightSize);
+                BridgeTextReader copyright(fShmNonRtServerControl);
 
-                fInfo.name  = realName;
-                fInfo.label = label;
-                fInfo.maker = maker;
-                fInfo.copyright = copyright;
+                fInfo.name  = realName.text;
+                fInfo.label = label.text;
+                fInfo.maker = maker.text;
+                fInfo.copyright = copyright.text;
+                realName.text = label.text = maker.text = copyright.text = nullptr;
 
                 if (pData->name == nullptr)
-                    pData->name = pData->engine->getUniquePluginName(realName);
+                    pData->name = pData->engine->getUniquePluginName(fInfo.name);
             }   break;
 
             case kPluginBridgeNonRtServerAudioCount: {
@@ -2216,10 +2327,7 @@ public:
                 const uint32_t index    = fShmNonRtServerControl.readUInt();
 
                 // name
-                const uint32_t nameSize(fShmNonRtServerControl.readUInt());
-                char* const name = new char[nameSize+1];
-                carla_zeroChars(name, nameSize+1);
-                fShmNonRtServerControl.readCustomData(name, nameSize);
+                BridgeTextReader name(fShmNonRtServerControl);
 
                 CARLA_SAFE_ASSERT_BREAK(portType > kPluginBridgePortNull && portType < kPluginBridgePortTypeCount);
 
@@ -2227,67 +2335,55 @@ public:
                 {
                 case kPluginBridgePortAudioInput:
                     CARLA_SAFE_ASSERT_BREAK(index < fInfo.aIns);
-                    fInfo.aInNames[index] = name;
+                    fInfo.aInNames[index] = name.text;
+                    name.text = nullptr;
                     break;
                 case kPluginBridgePortAudioOutput:
                     CARLA_SAFE_ASSERT_BREAK(index < fInfo.aOuts);
-                    fInfo.aOutNames[index] = name;
+                    fInfo.aOutNames[index] = name.text;
+                    name.text = nullptr;
                     break;
                 }
 
             }   break;
 
             case kPluginBridgeNonRtServerParameterData1: {
-                // uint/index, int/rindex, uint/type, uint/hints, int/cc
+                // uint/index, int/rindex, uint/type, uint/hints, short/cc
                 const uint32_t index  = fShmNonRtServerControl.readUInt();
                 const  int32_t rindex = fShmNonRtServerControl.readInt();
                 const uint32_t type   = fShmNonRtServerControl.readUInt();
                 const uint32_t hints  = fShmNonRtServerControl.readUInt();
                 const  int16_t ctrl   = fShmNonRtServerControl.readShort();
 
-                CARLA_SAFE_ASSERT_BREAK(ctrl >= CONTROL_INDEX_NONE && ctrl <= CONTROL_INDEX_MAX_ALLOWED);
-                CARLA_SAFE_ASSERT_INT2(index < pData->param.count, index, pData->param.count);
+                CARLA_SAFE_ASSERT_INT_BREAK(ctrl >= CONTROL_INDEX_NONE && ctrl <= CONTROL_INDEX_MAX_ALLOWED, ctrl);
+                CARLA_SAFE_ASSERT_UINT2_BREAK(index < pData->param.count, index, pData->param.count);
 
-                if (index < pData->param.count)
-                {
-                    pData->param.data[index].type   = static_cast<ParameterType>(type);
-                    pData->param.data[index].index  = static_cast<int32_t>(index);
-                    pData->param.data[index].rindex = rindex;
-                    pData->param.data[index].hints  = hints;
-                    pData->param.data[index].mappedControlIndex = ctrl;
-                }
+                pData->param.data[index].type   = static_cast<ParameterType>(type);
+                pData->param.data[index].index  = static_cast<int32_t>(index);
+                pData->param.data[index].rindex = rindex;
+                pData->param.data[index].hints  = hints;
+                pData->param.data[index].mappedControlIndex = ctrl;
             }   break;
 
             case kPluginBridgeNonRtServerParameterData2: {
-                // uint/index, uint/size, str[] (name), uint/size, str[] (unit)
+                // uint/index, uint/size, str[] (name), uint/size, str[] (symbol), uint/size, str[] (unit)
                 const uint32_t index = fShmNonRtServerControl.readUInt();
 
                 // name
-                const uint32_t nameSize(fShmNonRtServerControl.readUInt());
-                char name[nameSize+1];
-                carla_zeroChars(name, nameSize+1);
-                fShmNonRtServerControl.readCustomData(name, nameSize);
+                BridgeTextReader name(fShmNonRtServerControl);
 
                 // symbol
-                const uint32_t symbolSize(fShmNonRtServerControl.readUInt());
-                char symbol[symbolSize+1];
-                carla_zeroChars(symbol, symbolSize+1);
-                fShmNonRtServerControl.readCustomData(symbol, symbolSize);
+                BridgeTextReader symbol(fShmNonRtServerControl);
 
                 // unit
-                const uint32_t unitSize(fShmNonRtServerControl.readUInt());
-                char unit[unitSize+1];
-                carla_zeroChars(unit, unitSize+1);
-                fShmNonRtServerControl.readCustomData(unit, unitSize);
+                BridgeTextReader unit(fShmNonRtServerControl);
 
-                CARLA_SAFE_ASSERT_INT2(index < pData->param.count, index, pData->param.count);
+                CARLA_SAFE_ASSERT_UINT2_BREAK(index < pData->param.count, index, pData->param.count);
 
-                if (index < pData->param.count)
-                {
-                    fParams[index].name   = name;
-                    fParams[index].symbol = symbol;
-                    fParams[index].unit   = unit;
-                }
+                fParams[index].name   = name.text;
+                fParams[index].symbol = symbol.text;
+                fParams[index].unit   = unit.text;
+                name.text = symbol.text = unit.text = nullptr;
             }   break;
 
             case kPluginBridgeNonRtServerParameterRanges: {
@@ -2303,17 +2399,14 @@ public:
                 CARLA_SAFE_ASSERT_BREAK(min < max);
                 CARLA_SAFE_ASSERT_BREAK(def >= min);
                 CARLA_SAFE_ASSERT_BREAK(def <= max);
-                CARLA_SAFE_ASSERT_INT2(index < pData->param.count, index, pData->param.count);
+                CARLA_SAFE_ASSERT_UINT2_BREAK(index < pData->param.count, index, pData->param.count);
 
-                if (index < pData->param.count)
-                {
-                    pData->param.ranges[index].def = def;
-                    pData->param.ranges[index].min = min;
-                    pData->param.ranges[index].max = max;
-                    pData->param.ranges[index].step      = step;
-                    pData->param.ranges[index].stepSmall = stepSmall;
-                    pData->param.ranges[index].stepLarge = stepLarge;
-                }
+                pData->param.ranges[index].def = def;
+                pData->param.ranges[index].min = min;
+                pData->param.ranges[index].max = max;
+                pData->param.ranges[index].step      = step;
+                pData->param.ranges[index].stepSmall = stepSmall;
+                pData->param.ranges[index].stepLarge = stepLarge;
             }   break;
 
             case kPluginBridgeNonRtServerParameterValue: {
@@ -2387,10 +2480,7 @@ public:
                 const uint32_t index = fShmNonRtServerControl.readUInt();
 
                 // name
-                const uint32_t nameSize(fShmNonRtServerControl.readUInt());
-                char name[nameSize+1];
-                carla_zeroChars(name, nameSize+1);
-                fShmNonRtServerControl.readCustomData(name, nameSize);
+                const BridgeTextReader name(fShmNonRtServerControl);
 
                 CARLA_SAFE_ASSERT_INT2(index < pData->prog.count, index, pData->prog.count);
 
@@ -2398,7 +2488,7 @@ public:
                 {
                     if (pData->prog.names[index] != nullptr)
                         delete[] pData->prog.names[index];
-                    pData->prog.names[index] = carla_strdup(name);
+                    pData->prog.names[index] = carla_strdup(name.text);
                 }
             }   break;
 
@@ -2409,10 +2499,7 @@ public:
                 const uint32_t program = fShmNonRtServerControl.readUInt();
 
                 // name
-                const uint32_t nameSize(fShmNonRtServerControl.readUInt());
-                char name[nameSize+1];
-                carla_zeroChars(name, nameSize+1);
-                fShmNonRtServerControl.readCustomData(name, nameSize);
+                const BridgeTextReader name(fShmNonRtServerControl);
 
                 CARLA_SAFE_ASSERT_INT2(index < pData->midiprog.count, index, pData->midiprog.count);
 
@@ -2422,65 +2509,89 @@ public:
                         delete[] pData->midiprog.data[index].name;
                     pData->midiprog.data[index].bank    = bank;
                     pData->midiprog.data[index].program = program;
-                    pData->midiprog.data[index].name    = carla_strdup(name);
+                    pData->midiprog.data[index].name    = carla_strdup(name.text);
                 }
             }   break;
 
             case kPluginBridgeNonRtServerSetCustomData: {
                 // uint/size, str[], uint/size, str[], uint/size, str[]
+                const uint32_t maxLocalValueLen = fBridgeVersion >= 10 ? 4096 : 16384;
 
                 // type
-                const uint32_t typeSize(fShmNonRtServerControl.readUInt());
-                char type[typeSize+1];
-                carla_zeroChars(type, typeSize+1);
-                fShmNonRtServerControl.readCustomData(type, typeSize);
+                const BridgeTextReader type(fShmNonRtServerControl);
 
                 // key
-                const uint32_t keySize(fShmNonRtServerControl.readUInt());
-                char key[keySize+1];
-                carla_zeroChars(key, keySize+1);
-                fShmNonRtServerControl.readCustomData(key, keySize);
+                const BridgeTextReader key(fShmNonRtServerControl);
 
                 // value
-                const uint32_t valueSize(fShmNonRtServerControl.readUInt());
-                char value[valueSize+1];
-                carla_zeroChars(value, valueSize+1);
+                const uint32_t valueSize = fShmNonRtServerControl.readUInt();
 
-                if (valueSize > 0)
-                    fShmNonRtServerControl.readCustomData(value, valueSize);
+                // special case for big values
+                if (valueSize > maxLocalValueLen)
+                {
+                    const BridgeTextReader bigValueFilePath(fShmNonRtServerControl);
 
-                CarlaPlugin::setCustomData(type, key, value, false);
+                    String realBigValueFilePath(bigValueFilePath.text);
+
+                   #ifndef CARLA_OS_WIN
+                    // Using Wine, fix temp dir
+                    if (fBinaryType == BINARY_WIN32 || fBinaryType == BINARY_WIN64)
+                    {
+                        const StringArray driveLetterSplit(StringArray::fromTokens(realBigValueFilePath, ":/", ""));
+                        carla_stdout("big value save path BEFORE => '%s' | using wineprefix '%s'", realBigValueFilePath.toRawUTF8(), fWinePrefix.buffer());
+
+                        realBigValueFilePath  = fWinePrefix.buffer();
+                        realBigValueFilePath += "/drive_";
+                        realBigValueFilePath += driveLetterSplit[0].toLowerCase();
+                        realBigValueFilePath += driveLetterSplit[1];
+
+                        realBigValueFilePath  = realBigValueFilePath.replace("\\", "/");
+                        carla_stdout("big value save path AFTER => '%s'", realBigValueFilePath.toRawUTF8());
+                    }
+                   #endif
+
+                    const File bigValueFile(realBigValueFilePath.toRawUTF8());
+                    CARLA_SAFE_ASSERT_BREAK(bigValueFile.existsAsFile());
+
+                    CarlaPlugin::setCustomData(type.text, key.text, bigValueFile.loadFileAsString().toRawUTF8(), false);
+
+                    bigValueFile.deleteFile();
+                }
+                else
+                {
+                    const BridgeTextReader value(fShmNonRtServerControl, valueSize);
+
+                    CarlaPlugin::setCustomData(type.text, key.text, value.text, false);
+                }
+
             }   break;
 
             case kPluginBridgeNonRtServerSetChunkDataFile: {
                 // uint/size, str[] (filename)
 
                 // chunkFilePath
-                const uint32_t chunkFilePathSize(fShmNonRtServerControl.readUInt());
-                char chunkFilePath[chunkFilePathSize+1];
-                carla_zeroChars(chunkFilePath, chunkFilePathSize+1);
-                fShmNonRtServerControl.readCustomData(chunkFilePath, chunkFilePathSize);
+                const BridgeTextReader chunkFilePath(fShmNonRtServerControl);
 
-                String realChunkFilePath(chunkFilePath);
+                String realChunkFilePath(chunkFilePath.text);
 
-#ifndef CARLA_OS_WIN
+               #ifndef CARLA_OS_WIN
                 // Using Wine, fix temp dir
                 if (fBinaryType == BINARY_WIN32 || fBinaryType == BINARY_WIN64)
                 {
                     const StringArray driveLetterSplit(StringArray::fromTokens(realChunkFilePath, ":/", ""));
-                    carla_stdout("chunk save path BEFORE => %s", realChunkFilePath.toRawUTF8());
+                    carla_stdout("chunk save path BEFORE => '%s' | using wineprefix '%s'", realChunkFilePath.toRawUTF8(), fWinePrefix.buffer());
 
-                    realChunkFilePath  = fWinePrefix;
+                    realChunkFilePath  = fWinePrefix.buffer();
                     realChunkFilePath += "/drive_";
                     realChunkFilePath += driveLetterSplit[0].toLowerCase();
                     realChunkFilePath += driveLetterSplit[1];
 
                     realChunkFilePath  = realChunkFilePath.replace("\\", "/");
-                    carla_stdout("chunk save path AFTER => %s", realChunkFilePath.toRawUTF8());
+                    carla_stdout("chunk save path AFTER => '%s'", realChunkFilePath.toRawUTF8());
                 }
-#endif
+               #endif
 
-                File chunkFile(realChunkFilePath);
+                const File chunkFile(realChunkFilePath.toRawUTF8());
                 CARLA_SAFE_ASSERT_BREAK(chunkFile.existsAsFile());
 
                 fInfo.chunk = carla_getChunkFromBase64String(chunkFile.loadFileAsString().toRawUTF8());
@@ -2499,12 +2610,10 @@ public:
             case kPluginBridgeNonRtServerSetParameterText: {
                 const int32_t index = fShmNonRtServerControl.readInt();
 
-                const uint32_t textSize(fShmNonRtServerControl.readUInt());
-                char text[textSize+1];
-                carla_zeroChars(text, textSize+1);
-                fShmNonRtServerControl.readCustomData(text, textSize);
+                const uint32_t textSize = fShmNonRtServerControl.readUInt();
+                const BridgeTextReader text(fShmNonRtServerControl, textSize);
 
-                fReceivingParamText.setReceivedData(index, text, textSize);
+                fReceivingParamText.setReceivedData(index, text.text, textSize);
             }   break;
 
             case kPluginBridgeNonRtServerReady:
@@ -2515,31 +2624,41 @@ public:
                 fSaved = true;
                 break;
 
+            case kPluginBridgeNonRtServerRespEmbedUI:
+                fPendingEmbedCustomUI = fShmNonRtServerControl.readULong();
+                break;
+
+            case kPluginBridgeNonRtServerResizeEmbedUI: {
+                const uint width = fShmNonRtServerControl.readUInt();
+                const uint height = fShmNonRtServerControl.readUInt();
+                pData->engine->callback(true, true, ENGINE_CALLBACK_EMBED_UI_RESIZED, pData->id,
+                                        static_cast<int>(width), static_cast<int>(height),
+                                        0, 0.0f, nullptr);
+            }   break;
+
             case kPluginBridgeNonRtServerUiClosed:
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
                 pData->transientTryCounter = 0;
 #endif
-                pData->engine->callback(true, true, ENGINE_CALLBACK_UI_STATE_CHANGED, pData->id, 0, 0, 0, 0.0f, nullptr);
+                pData->engine->callback(true, true, ENGINE_CALLBACK_UI_STATE_CHANGED, pData->id,
+                                        0, 0, 0, 0.0f, nullptr);
                 break;
 
             case kPluginBridgeNonRtServerError: {
                 // error
-                const uint32_t errorSize(fShmNonRtServerControl.readUInt());
-                char error[errorSize+1];
-                carla_zeroChars(error, errorSize+1);
-                fShmNonRtServerControl.readCustomData(error, errorSize);
+                const BridgeTextReader error(fShmNonRtServerControl);
 
                 if (fInitiated)
                 {
-                    pData->engine->callback(true, true, ENGINE_CALLBACK_ERROR, pData->id, 0, 0, 0, 0.0f, error);
+                    pData->engine->callback(true, true, ENGINE_CALLBACK_ERROR, pData->id, 0, 0, 0, 0.0f, error.text);
 
                     // just in case
-                    pData->engine->setLastError(error);
+                    pData->engine->setLastError(error.text);
                     fInitError = true;
                 }
                 else
                 {
-                    pData->engine->setLastError(error);
+                    pData->engine->setLastError(error.text);
                     fInitError = true;
                     fInitiated = true;
                 }
@@ -2637,7 +2756,7 @@ public:
             return false;
         }
 
-#ifndef CARLA_OS_WIN
+       #ifndef CARLA_OS_WIN
         // ---------------------------------------------------------------
         // set wine prefix
 
@@ -2645,22 +2764,26 @@ public:
         {
             const EngineOptions& engineOptions(pData->engine->getOptions());
 
-            if (engineOptions.wine.autoPrefix)
-                fWinePrefix = findWinePrefix(pData->filename);
+            water::String winePrefix;
 
-            if (fWinePrefix.isEmpty())
+            if (engineOptions.wine.autoPrefix)
+                winePrefix = findWinePrefix(pData->filename);
+
+            if (winePrefix.isEmpty())
             {
-                const char* const envWinePrefix(std::getenv("WINEPREFIX"));
+                const char* const envWinePrefix = std::getenv("WINEPREFIX");
 
                 if (envWinePrefix != nullptr && envWinePrefix[0] != '\0')
-                    fWinePrefix = envWinePrefix;
+                    winePrefix = envWinePrefix;
                 else if (engineOptions.wine.fallbackPrefix != nullptr && engineOptions.wine.fallbackPrefix[0] != '\0')
-                    fWinePrefix = engineOptions.wine.fallbackPrefix;
+                    winePrefix = engineOptions.wine.fallbackPrefix;
                 else
-                    fWinePrefix = File::getSpecialLocation(File::userHomeDirectory).getFullPathName() + "/.wine";
+                    winePrefix = File::getSpecialLocation(File::userHomeDirectory).getFullPathName() + "/.wine";
             }
+
+            fWinePrefix = winePrefix.toRawUTF8();
         }
-#endif
+       #endif
 
         // ---------------------------------------------------------------
         // init bridge thread
@@ -2675,9 +2798,9 @@ public:
             std::strncpy(shmIdsStr+6*3, &fShmNonRtServerControl.filename[fShmNonRtServerControl.filename.length()-6], 6);
 
             fBridgeThread.setData(
-#ifndef CARLA_OS_WIN
-                                  fWinePrefix.toRawUTF8(),
-#endif
+                                 #ifndef CARLA_OS_WIN
+                                  fWinePrefix,
+                                 #endif
                                   binaryArchName, bridgeBinary, label, shmIdsStr);
         }
 
@@ -2787,6 +2910,7 @@ private:
     bool fTimedError;
     uint fBufferSize;
     uint fProcWaitTime;
+    uint64_t fPendingEmbedCustomUI;
 
     CarlaString             fBridgeBinary;
     CarlaPluginBridgeThread fBridgeThread;
@@ -2796,9 +2920,9 @@ private:
     BridgeNonRtClientControl fShmNonRtClientControl;
     BridgeNonRtServerControl fShmNonRtServerControl;
 
-#ifndef CARLA_OS_WIN
-    String fWinePrefix;
-#endif
+   #ifndef CARLA_OS_WIN
+    CarlaString fWinePrefix;
+   #endif
 
     class ReceivingParamText {
     public:
@@ -2856,7 +2980,7 @@ private:
         char* strBuf;
         CarlaMutex mutex;
 
-        CARLA_DECLARE_NON_COPY_CLASS(ReceivingParamText)
+        CARLA_DECLARE_NON_COPYABLE(ReceivingParamText)
     } fReceivingParamText;
 
     struct Info {
@@ -2948,7 +3072,7 @@ private:
             aIns = aOuts = cvIns = cvOuts = 0;
         }
 
-        CARLA_DECLARE_NON_COPY_STRUCT(Info)
+        CARLA_DECLARE_NON_COPYABLE(Info)
     } fInfo;
 
     int64_t  fUniqueId;
@@ -3091,7 +3215,7 @@ private:
                                     pData->id,
                                     0,
                                     0, 0, 0.0f,
-                                    "Loading JACK application");
+                                    "Loading plugin bridge");
         }
 #endif
 
@@ -3121,7 +3245,7 @@ private:
             filePath += CARLA_OS_SEP_STR ".CarlaChunk_";
             filePath += fShmAudioPool.getFilenameSuffix();
 
-            if (File(filePath).replaceWithText(dataBase64.buffer()))
+            if (File(filePath.toRawUTF8()).replaceWithText(dataBase64.buffer()))
             {
                 const uint32_t ulength(static_cast<uint32_t>(filePath.length()));
 

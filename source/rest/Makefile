@@ -26,7 +26,7 @@ BUILD_CXX_FLAGS += -I$(CWD) -I$(CWD)/backend -I$(CWD)/includes -I$(CWD)/modules 
 LINK_FLAGS += -Wl,-rpath=$(shell realpath $(CWD)/../bin)
 LINK_FLAGS += -L$(BINDIR) -lcarla_standalone2 -lcarla_utils
 LINK_FLAGS += -lrestbed -lssl -lcrypto
-LINK_FLAGS += -lpthread
+LINK_FLAGS += -pthread
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -50,14 +50,14 @@ debug:
 $(BINDIR)/carla-rest-server: $(OBJS)
 	-@mkdir -p $(BINDIR)
 	@echo "Linking carla-rest-server"
-	@$(CXX) $^ $(LINK_FLAGS) -o $@
+	$(SILENT)$(CXX) $^ $(LINK_FLAGS) -o $@
 
 # ----------------------------------------------------------------------------------------------------------------------
 
 $(OBJDIR)/%.cpp.o: %.cpp
 	-@mkdir -p $(OBJDIR)
 	@echo "Compiling $<"
-	@$(CXX) $< $(BUILD_CXX_FLAGS) -c -o $@
+	$(SILENT)$(CXX) $< $(BUILD_CXX_FLAGS) -c -o $@
 
 # ----------------------------------------------------------------------------------------------------------------------
 

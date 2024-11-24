@@ -1,6 +1,6 @@
 /*
  * Carla Native Plugin API
- * Copyright (C) 2012-2019 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2023 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -89,7 +89,8 @@ typedef enum {
 typedef enum {
     NATIVE_PARAMETER_IS_OUTPUT        = 1 << 0,
     NATIVE_PARAMETER_IS_ENABLED       = 1 << 1,
-    NATIVE_PARAMETER_IS_AUTOMABLE     = 1 << 2,
+    NATIVE_PARAMETER_IS_AUTOMATABLE   = 1 << 2,
+    NATIVE_PARAMETER_IS_AUTOMABLE     = NATIVE_PARAMETER_IS_AUTOMATABLE, // there was a typo..
     NATIVE_PARAMETER_IS_BOOLEAN       = 1 << 3,
     NATIVE_PARAMETER_IS_INTEGER       = 1 << 4,
     NATIVE_PARAMETER_IS_LOGARITHMIC   = 1 << 5,
@@ -99,14 +100,16 @@ typedef enum {
 } NativeParameterHints;
 
 typedef enum {
-    NATIVE_PLUGIN_OPCODE_NULL                = 0, /** nothing                  */
-    NATIVE_PLUGIN_OPCODE_BUFFER_SIZE_CHANGED = 1, /** uses value               */
-    NATIVE_PLUGIN_OPCODE_SAMPLE_RATE_CHANGED = 2, /** uses opt                 */
-    NATIVE_PLUGIN_OPCODE_OFFLINE_CHANGED     = 3, /** uses value (0=off, 1=on) */
-    NATIVE_PLUGIN_OPCODE_UI_NAME_CHANGED     = 4, /** uses ptr                 */
-    NATIVE_PLUGIN_OPCODE_GET_INTERNAL_HANDLE = 5, /** nothing                  */
-    NATIVE_PLUGIN_OPCODE_IDLE                = 6, /** nothing                  */
-    NATIVE_PLUGIN_OPCODE_UI_MIDI_EVENT       = 7  /** uses ptr                 */
+    NATIVE_PLUGIN_OPCODE_NULL                = 0, /** nothing                   */
+    NATIVE_PLUGIN_OPCODE_BUFFER_SIZE_CHANGED = 1, /** uses value                */
+    NATIVE_PLUGIN_OPCODE_SAMPLE_RATE_CHANGED = 2, /** uses opt                  */
+    NATIVE_PLUGIN_OPCODE_OFFLINE_CHANGED     = 3, /** uses value (0=off, 1=on)  */
+    NATIVE_PLUGIN_OPCODE_UI_NAME_CHANGED     = 4, /** uses ptr                  */
+    NATIVE_PLUGIN_OPCODE_GET_INTERNAL_HANDLE = 5, /** nothing                   */
+    NATIVE_PLUGIN_OPCODE_IDLE                = 6, /** nothing                   */
+    NATIVE_PLUGIN_OPCODE_UI_MIDI_EVENT       = 7, /** uses ptr                  */
+    NATIVE_PLUGIN_OPCODE_HOST_USES_EMBED     = 8, /** nothing                   */
+    NATIVE_PLUGIN_OPCODE_HOST_OPTION         = 9  /** uses index, value and ptr */
 } NativePluginDispatcherOpcode;
 
 typedef enum {
@@ -316,7 +319,7 @@ extern void carla_register_native_plugin(const NativePluginDescriptor* desc);
 void carla_register_all_native_plugins(void);
 
 /** Get meta-data only */
-CARLA_EXPORT
+CARLA_API_EXPORT
 const NativePluginDescriptor* carla_get_native_plugins_data(uint32_t* count);
 
 /* ------------------------------------------------------------------------------------------------------------ */

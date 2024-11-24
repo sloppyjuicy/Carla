@@ -1,19 +1,5 @@
-/*
- * Carla common utils
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef CARLA_UTILS_HPP_INCLUDED
 #define CARLA_UTILS_HPP_INCLUDED
@@ -27,17 +13,24 @@
 #include <cstring>
 
 #ifdef CARLA_PROPER_CPP11_SUPPORT
-# include <cxxabi.h>
+# ifdef __GNUC__
+#  include <cxxabi.h>
+# endif
 # include <cstdint>
 #else
 # include <stdint.h>
 #endif
 
 #ifdef CARLA_OS_WIN
+# ifndef NOMINMAX
+#  define NOMINMAX
+# endif
 # define WIN32_LEAN_AND_MEAN 1
+# include <shlwapi.h>
 # include <winsock2.h>
 # include <windows.h>
 #else
+# include <strings.h>
 # include <unistd.h>
 #endif
 
@@ -111,27 +104,28 @@ void carla_debug(const char* const fmt, ...) noexcept
     static FILE* const output = __carla_fopen("/tmp/carla.debug.log", stdout);
 
     try {
-        ::va_list args;
-        ::va_start(args, fmt);
+        va_list args;
+        va_start(args, fmt);
 
         if (output == stdout)
         {
 #ifdef CARLA_OS_MAC
-            std::fprintf(output, "\x1b[37;1m");
+            std::fprintf(output, "\x1b[37;1m[carla] ");
 #else
-            std::fprintf(output, "\x1b[30;1m");
+            std::fprintf(output, "\x1b[30;1m[carla] ");
 #endif
             std::vfprintf(output, fmt, args);
             std::fprintf(output, "\x1b[0m\n");
         }
         else
         {
+            std::fprintf(output, "[carla] ");
             std::vfprintf(output, fmt, args);
             std::fprintf(output, "\n");
         }
 
         std::fflush(output);
-        ::va_end(args);
+        va_end(args);
     } CARLA_CATCH_UNWIND catch (...) {}
 }
 #endif
@@ -145,15 +139,16 @@ void carla_stdout(const char* const fmt, ...) noexcept
     static FILE* const output = __carla_fopen("/tmp/carla.stdout.log", stdout);
 
     try {
-        ::va_list args;
-        ::va_start(args, fmt);
+        va_list args;
+        va_start(args, fmt);
+        std::fprintf(output, "[carla] ");
         std::vfprintf(output, fmt, args);
         std::fprintf(output, "\n");
 #ifndef DEBUG
         if (output != stdout)
 #endif
             std::fflush(output);
-        ::va_end(args);
+        va_end(args);
     } CARLA_CATCH_UNWIND catch (...) {}
 }
 
@@ -166,15 +161,16 @@ void carla_stderr(const char* const fmt, ...) noexcept
     static FILE* const output = __carla_fopen("/tmp/carla.stderr.log", stderr);
 
     try {
-        ::va_list args;
-        ::va_start(args, fmt);
+        va_list args;
+        va_start(args, fmt);
+        std::fprintf(output, "[carla] ");
         std::vfprintf(output, fmt, args);
         std::fprintf(output, "\n");
 #ifndef DEBUG
         if (output != stderr)
 #endif
             std::fflush(output);
-        ::va_end(args);
+        va_end(args);
     } CARLA_CATCH_UNWIND catch (...) {}
 }
 
@@ -187,23 +183,24 @@ void carla_stderr2(const char* const fmt, ...) noexcept
     static FILE* const output = __carla_fopen("/tmp/carla.stderr2.log", stderr);
 
     try {
-        ::va_list args;
-        ::va_start(args, fmt);
+        va_list args;
+        va_start(args, fmt);
 
         if (output == stderr)
         {
-            std::fprintf(output, "\x1b[31m");
+            std::fprintf(output, "\x1b[31m[carla] ");
             std::vfprintf(output, fmt, args);
             std::fprintf(output, "\x1b[0m\n");
         }
         else
         {
+            std::fprintf(output, "[carla] ");
             std::vfprintf(output, fmt, args);
             std::fprintf(output, "\n");
         }
 
         std::fflush(output);
-        ::va_end(args);
+        va_end(args);
     } CARLA_CATCH_UNWIND catch (...) {}
 }
 
@@ -282,43 +279,6 @@ void carla_safe_exception(const char* const exception, const char* const file, c
 }
 
 // --------------------------------------------------------------------------------------------------------------------
-// carla_*sleep
-
-/*
- * Sleep for 'secs' seconds.
- */
-static inline
-void carla_sleep(const uint secs) noexcept
-{
-    CARLA_SAFE_ASSERT_RETURN(secs > 0,);
-
-    try {
-#ifdef CARLA_OS_WIN
-        ::Sleep(secs * 1000);
-#else
-        ::sleep(secs);
-#endif
-    } CARLA_SAFE_EXCEPTION("carla_sleep");
-}
-
-/*
- * Sleep for 'msecs' milliseconds.
- */
-static inline
-void carla_msleep(const uint msecs) noexcept
-{
-    CARLA_SAFE_ASSERT_RETURN(msecs > 0,);
-
-    try {
-#ifdef CARLA_OS_WIN
-        ::Sleep(msecs);
-#else
-        ::usleep(msecs * 1000);
-#endif
-    } CARLA_SAFE_EXCEPTION("carla_msleep");
-}
-
-// --------------------------------------------------------------------------------------------------------------------
 // carla_setenv
 
 /*
@@ -389,7 +349,7 @@ const char* carla_strdup(const char* const strBuf)
 static inline
 const char* carla_strdup_free(char* const strBuf)
 {
-    const char* const buffer(carla_strdup(strBuf));
+    const char* const buffer = carla_strdup(strBuf);
     std::free(strBuf);
     return buffer;
 }
@@ -419,6 +379,39 @@ const char* carla_strdup_safe(const char* const strBuf) noexcept
 }
 
 // --------------------------------------------------------------------------------------------------------------------
+// carla_strcase*
+
+#ifdef CARLA_OS_WIN
+# ifdef _MSC_VER
+#  pragma comment(lib, "shlwapi.lib")
+# endif
+
+static inline
+int carla_strcasecmp(const char* const str1, const char* const str2) noexcept
+{
+    return ::StrCmpIA(str1, str2);
+}
+
+static inline
+const char* carla_strcasestr(const char* const haystack, const char* const needle) noexcept
+{
+    return ::StrStrIA(haystack, needle);
+}
+#else
+static inline
+ssize_t carla_strcasecmp(const char* const str1, const char* const str2) noexcept
+{
+    return ::strcasecmp(str1, str2);
+}
+
+static inline
+const char* carla_strcasestr(const char* const haystack, const char* const needle) noexcept
+{
+    return ::strcasestr(haystack, needle);
+}
+#endif
+
+// --------------------------------------------------------------------------------------------------------------------
 // memory functions
 
 /*
@@ -434,7 +427,7 @@ void carla_add(T dest[], const T src[], const std::size_t count) noexcept
     CARLA_SAFE_ASSERT_RETURN(count > 0,);
 
     for (std::size_t i=0; i<count; ++i)
-        *dest++ += *src++;
+        dest[i] += src[i];
 }
 
 /*
@@ -450,7 +443,7 @@ void carla_addWithMultiply(T dest[], const T src[], const T& multiplier, const s
     CARLA_SAFE_ASSERT_RETURN(count > 0,);
 
     for (std::size_t i=0; i<count; ++i)
-        *dest++ += *src++ * multiplier;
+        dest[i] += src[i] * multiplier;
 }
 
 /*
@@ -481,7 +474,7 @@ void carla_copyWithMultiply(T dest[], const T src[], const T& multiplier, const 
     CARLA_SAFE_ASSERT_RETURN(count > 0,);
 
     for (std::size_t i=0; i<count; ++i)
-        *dest++ = *src++ * multiplier;
+        dest[i] = src[i] * multiplier;
 }
 
 /*
@@ -501,7 +494,7 @@ void carla_fill(T data[], const T& value, const std::size_t count) noexcept
     else
     {
         for (std::size_t i=0; i<count; ++i)
-            *data++ = value;
+            data[i] = value;
     }
 }
 
@@ -522,7 +515,7 @@ void carla_multiply(T data[], const T& multiplier, const std::size_t count) noex
     else
     {
         for (std::size_t i=0; i<count; ++i)
-            *data++ *= multiplier;
+            data[i] *= multiplier;
     }
 }
 

@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2018 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2018-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -27,7 +27,6 @@
 #define WATER_HASHMAP_H_INCLUDED
 
 #include "Array.h"
-#include "../containers/Variant.h"
 #include "../text/String.h"
 
 #include "CarlaScopeUtils.hpp"
@@ -48,8 +47,6 @@ struct DefaultHashFunctions
     int generateHash (const int64 key, const int upperLimit) const noexcept      { return std::abs ((int) key) % upperLimit; }
     /** Generates a simple hash from a string. */
     int generateHash (const String& key, const int upperLimit) const noexcept    { return (int) (((uint32) key.hashCode()) % (uint32) upperLimit); }
-    /** Generates a simple hash from a variant. */
-    int generateHash (const var& key, const int upperLimit) const noexcept       { return generateHash (key.toString(), upperLimit); }
     /** Generates a simple hash from a void ptr. */
     int generateHash (const void* key, const int upperLimit) const noexcept      { return (int)(((pointer_sized_uint) key) % ((pointer_sized_uint) upperLimit)); }
 };
@@ -331,7 +328,7 @@ private:
         ValueType value;
         HashEntry* nextEntry;
 
-        CARLA_DECLARE_NON_COPY_CLASS (HashEntry)
+        CARLA_DECLARE_NON_COPYABLE (HashEntry)
     };
 
 public:

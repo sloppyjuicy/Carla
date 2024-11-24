@@ -1,20 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-# Carla application
-# Copyright (C) 2013-2020 Filipe Coelho <falktx@falktx.com>
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License as
-# published by the Free Software Foundation; either version 2 of
-# the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# For a full copy of the GNU General Public License see the doc/GPL.txt file.
+# SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # ------------------------------------------------------------------------------------------------------------
 # Imports (Global)
@@ -28,11 +14,18 @@ import sys
 from ctypes import CDLL, RTLD_GLOBAL
 
 # ------------------------------------------------------------------------------------------------------------
-# Imports (PyQt5)
+# Imports (PyQt)
 
-from PyQt5.QtCore import QT_VERSION, Qt, QCoreApplication, QLibraryInfo, QLocale, QTranslator
-from PyQt5.QtGui import QColor, QIcon, QPalette
-from PyQt5.QtWidgets import QApplication
+from qt_compat import qt_config
+
+if qt_config == 5:
+    from PyQt5.QtCore import QT_VERSION, Qt, QCoreApplication, QLibraryInfo, QLocale, QTranslator
+    from PyQt5.QtGui import QColor, QIcon, QPalette
+    from PyQt5.QtWidgets import QApplication
+elif qt_config == 6:
+    from PyQt6.QtCore import QT_VERSION, Qt, QCoreApplication, QLibraryInfo, QLocale, QTranslator
+    from PyQt6.QtGui import QColor, QIcon, QPalette
+    from PyQt6.QtWidgets import QApplication
 
 # ------------------------------------------------------------------------------------------------------------
 # Imports (Custom)
@@ -46,9 +39,10 @@ from carla_shared import (
     CARLA_DEFAULT_MAIN_PRO_THEME_COLOR,
     CWD, VERSION,
     getPaths,
-    QSafeSettings,
     gCarla
 )
+
+from utils import QSafeSettings
 
 # ------------------------------------------------------------------------------------------------------------
 
@@ -68,8 +62,13 @@ class CarlaApplication():
                 path = "H:\\PawPawBuilds\\targets\\win32\\lib\\qt5\\plugins"
             QApplication.addLibraryPath(path)
 
+        # Try resource dir as library path first
+        if os.path.exists(os.path.join(pathResources, "styles", "carlastyle.json")):
+            QApplication.addLibraryPath(pathResources)
+            stylesDir = pathResources
+
         # Use binary dir as library path
-        if os.path.exists(pathBinaries):
+        elif os.path.exists(pathBinaries):
             QApplication.addLibraryPath(pathBinaries)
             stylesDir = pathBinaries
 
@@ -131,7 +130,7 @@ class CarlaApplication():
             self.createPaletteBlue()
 
     def createApp(self, appName):
-        if LINUX:
+        if qt_config == 5 and LINUX:
             # AA_X11InitThreads is not available on old PyQt versions
             try:
                 attr = Qt.AA_X11InitThreads
@@ -139,12 +138,12 @@ class CarlaApplication():
                 attr = 10
             QApplication.setAttribute(attr)
 
+            if QT_VERSION >= 0x50600:
+                QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+                QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
         if MACOS:
             QApplication.setAttribute(Qt.AA_DontShowIconsInMenus)
-
-        if QT_VERSION >= 0x50600:
-            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
-            QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
 
         args = sys.argv[:]
 

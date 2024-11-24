@@ -22,7 +22,13 @@
 #include "jackbridge/JackBridge.hpp"
 
 #include <ctime>
-#include <sys/time.h>
+
+#ifdef _MSC_VER
+# include <sys/timeb.h>
+# include <sys/types.h>
+#else
+# include <sys/time.h>
+#endif
 
 CARLA_BACKEND_START_NAMESPACE
 
@@ -377,7 +383,7 @@ EngineEvent* CarlaEngine::getInternalEventBuffer(const bool isInput) const noexc
 // CarlaEngine::ProtectedData
 
 CarlaEngine::ProtectedData::ProtectedData(CarlaEngine* const engine)
-    : thread(engine),
+    : runner(engine),
 #if defined(HAVE_LIBLO) && !defined(BUILD_BRIDGE)
       osc(engine),
 #endif
@@ -409,6 +415,7 @@ CarlaEngine::ProtectedData::ProtectedData(CarlaEngine* const engine)
       xruns(0),
       dspLoad(0.0f),
 #endif
+      pluginsToDeleteMutex(),
       pluginsToDelete(),
       events(),
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
@@ -432,6 +439,8 @@ CarlaEngine::ProtectedData::~ProtectedData()
 #ifndef BUILD_BRIDGE_ALTERNATIVE_ARCH
     CARLA_SAFE_ASSERT(plugins == nullptr);
 #endif
+
+    const CarlaMutexLocker cml(pluginsToDeleteMutex);
 
     if (pluginsToDelete.size() != 0)
     {
@@ -511,7 +520,7 @@ bool CarlaEngine::ProtectedData::init(const char* const clientName)
 #endif
 
     nextAction.clearAndReset();
-    thread.startThread();
+    runner.start();
 
     return true;
 }
@@ -526,7 +535,7 @@ void CarlaEngine::ProtectedData::close()
 
     aboutToClose = true;
 
-    thread.stopThread(500);
+    runner.stop();
     nextAction.clearAndReset();
 
 #if defined(HAVE_LIBLO) && !defined(BUILD_BRIDGE)
@@ -571,22 +580,27 @@ void CarlaEngine::ProtectedData::initTime(const char* const features)
 
 void CarlaEngine::ProtectedData::deletePluginsAsNeeded()
 {
-    for (bool stop;;)
-    {
-        stop = true;
+    std::vector<CarlaPluginPtr> safePluginListToDelete;
 
-        for (std::vector<CarlaPluginPtr>::iterator it = pluginsToDelete.begin(); it != pluginsToDelete.end(); ++it)
+    if (const size_t size = pluginsToDelete.size())
+        safePluginListToDelete.reserve(size);
+
+    {
+        const CarlaMutexLocker cml(pluginsToDeleteMutex);
+
+        for (std::vector<CarlaPluginPtr>::iterator it = pluginsToDelete.begin(); it != pluginsToDelete.end();)
         {
             if (it->use_count() == 1)
             {
-                stop = false;
+                const CarlaPluginPtr plugin = *it;
+                safePluginListToDelete.push_back(plugin);
                 pluginsToDelete.erase(it);
-                break;
+            }
+            else
+            {
+                 ++it;
             }
         }
-
-        if (stop)
-            break;
     }
 }
 
@@ -688,19 +702,21 @@ void CarlaEngine::ProtectedData::doNextPluginAction() noexcept
 
 static int64_t getTimeInMicroseconds() noexcept
 {
-#if defined(CARLA_OS_MAC) || defined(CARLA_OS_WIN)
+#if defined(_MSC_VER)
+    struct _timeb tb;
+    _ftime_s (&tb);
+    return ((int64_t) tb.time) * 1000 + tb.millitm;
+#elif defined(CARLA_OS_MAC) || defined(CARLA_OS_WIN)
     struct timeval tv;
     gettimeofday(&tv, nullptr);
-
     return (tv.tv_sec * 1000000) + tv.tv_usec;
 #else
     struct timespec ts;
-# ifdef CLOCK_MONOTONIC_RAW
+   #ifdef CLOCK_MONOTONIC_RAW
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-# else
+   #else
     clock_gettime(CLOCK_MONOTONIC, &ts);
-# endif
-
+   #endif
     return (ts.tv_sec * 1000000) + (ts.tv_nsec / 1000);
 #endif
 }
@@ -769,12 +785,14 @@ ScopedActionLock::ScopedActionLock(CarlaEngine* const engine,
 
     if (pData->nextAction.needsPost)
     {
+        bool engineStoppedWhileWaiting = false;
+
+      #ifndef CARLA_OS_WASM
        #if defined(DEBUG) || defined(BUILD_BRIDGE)
         // block wait for unlock on processing side
-        carla_stdout(ACTION_MSG_PREFIX "ScopedPluginAction(%i) - blocking START", pluginId);
+        carla_stdout(ACTION_MSG_PREFIX "ScopedPluginAction(%i|%i:%s) - blocking START",
+                     pluginId, action, EnginePostAction2Str(action));
        #endif
-
-        bool engineStoppedWhileWaiting = false;
 
         if (! pData->nextAction.postDone)
         {
@@ -799,8 +817,10 @@ ScopedActionLock::ScopedActionLock(CarlaEngine* const engine,
         }
 
        #if defined(DEBUG) || defined(BUILD_BRIDGE)
-        carla_stdout(ACTION_MSG_PREFIX "ScopedPluginAction(%i) - blocking DONE", pluginId);
+        carla_stdout(ACTION_MSG_PREFIX "ScopedPluginAction(%i|%i:%s) - blocking DONE",
+                     pluginId, action, EnginePostAction2Str(action));
        #endif
+      #endif
 
         // check if anything went wrong...
         if (! pData->nextAction.postDone)
@@ -838,19 +858,19 @@ ScopedActionLock::~ScopedActionLock() noexcept
 }
 
 // -----------------------------------------------------------------------
-// ScopedThreadStopper
+// ScopedRunnerStopper
 
-ScopedThreadStopper::ScopedThreadStopper(CarlaEngine* const e) noexcept
+ScopedRunnerStopper::ScopedRunnerStopper(CarlaEngine* const e) noexcept
     : engine(e),
       pData(e->pData)
 {
-    pData->thread.stopThread(500);
+    pData->runner.stop();
 }
 
-ScopedThreadStopper::~ScopedThreadStopper() noexcept
+ScopedRunnerStopper::~ScopedRunnerStopper() noexcept
 {
     if (engine->isRunning() && ! pData->aboutToClose)
-        pData->thread.startThread();
+        pData->runner.start();
 }
 
 // -----------------------------------------------------------------------

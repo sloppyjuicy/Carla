@@ -84,6 +84,11 @@
 # endif
 #endif
 
+#if (defined(__arm__) || defined(__aarch64__) || defined(__mips__) || defined(__ppc__) || defined(__powerpc__)) && !defined(__APPLE__)
+# undef POST_PACKED_STRUCTURE
+# define POST_PACKED_STRUCTURE
+#endif
+
 #define JACK_DEFAULT_AUDIO_TYPE "32 bit float mono audio"
 #define JACK_DEFAULT_MIDI_TYPE  "8 bit raw midi"
 
@@ -125,7 +130,8 @@ enum JackStatus {
     JackShmFailure    = 0x0200,
     JackVersionError  = 0x0400,
     JackBackendError  = 0x0800,
-    JackClientZombie  = 0x1000
+    JackClientZombie  = 0x1000,
+    JackBridgeNativeFailed = 0x10000
 };
 
 enum JackLatencyCallbackMode {
@@ -411,7 +417,9 @@ JACKBRIDGE_API bool jackbridge_sem_init(void* sem) noexcept;
 JACKBRIDGE_API void jackbridge_sem_destroy(void* sem) noexcept;
 JACKBRIDGE_API bool jackbridge_sem_connect(void* sem) noexcept;
 JACKBRIDGE_API void jackbridge_sem_post(void* sem, bool server) noexcept;
+#ifndef CARLA_OS_WASM
 JACKBRIDGE_API bool jackbridge_sem_timedwait(void* sem, uint msecs, bool server) noexcept;
+#endif
 
 JACKBRIDGE_API bool  jackbridge_shm_is_valid(const void* shm) noexcept;
 JACKBRIDGE_API void  jackbridge_shm_init(void* shm) noexcept;
@@ -419,6 +427,10 @@ JACKBRIDGE_API void  jackbridge_shm_attach(void* shm, const char* name) noexcept
 JACKBRIDGE_API void  jackbridge_shm_close(void* shm) noexcept;
 JACKBRIDGE_API void* jackbridge_shm_map(void* shm, uint64_t size) noexcept;
 JACKBRIDGE_API void  jackbridge_shm_unmap(void* shm, void* ptr) noexcept;
+
+JACKBRIDGE_API void* jackbridge_discovery_pipe_create(const char* argv[]);
+JACKBRIDGE_API void  jackbridge_discovery_pipe_message(void* pipe, const char* key, const char* value);
+JACKBRIDGE_API void  jackbridge_discovery_pipe_destroy(void* pipe);
 
 JACKBRIDGE_API void jackbridge_parent_deathsig(bool kill) noexcept;
 

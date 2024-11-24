@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2015 ROLI Ltd.
-   Copyright (C) 2017-2018 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the GNU
    General Public License as published by the Free Software Foundation;
@@ -22,7 +22,6 @@
 #define WATER_AUDIOPROCESSORGRAPH_H_INCLUDED
 
 #include "AudioProcessor.h"
-#include "../containers/NamedValueSet.h"
 #include "../containers/OwnedArray.h"
 #include "../containers/ReferenceCountedArray.h"
 #include "../midi/MidiBuffer.h"
@@ -72,13 +71,38 @@ public:
         /** The actual processor object that this node represents. */
         AudioProcessor* getProcessor() const noexcept           { return processor; }
 
-        /** A set of user-definable properties that are associated with this node.
+        /** Custom properties for Carla usage. */
+        struct Properties {
+            bool isAudio;
+            bool isCV;
+            bool isMIDI;
+            bool isOSC;
+            bool isOutput;
+            bool isPlugin;
+            uint32_t pluginId;
 
-            This can be used to attach values to the node for whatever purpose seems
-            useful. For example, you might store an x and y position if your application
-            is displaying the nodes on-screen.
-        */
-        NamedValueSet properties;
+            struct Position {
+                int x1, x2, y1, y2;
+                bool valid;
+
+                Position() noexcept
+                    : x1(0),
+                      x2(0),
+                      y1(0),
+                      y2(0),
+                      valid(false) {}
+            } position;
+
+            Properties() noexcept
+                : isAudio(false),
+                  isCV(false),
+                  isMIDI(false),
+                  isOSC(false),
+                  isOutput(false),
+                  isPlugin(false),
+                  pluginId(0),
+                  position() {}
+        } properties;
 
         //==============================================================================
         /** A convenient typedef for referring to a pointer to a node object. */
@@ -97,7 +121,7 @@ public:
         void prepare (double newSampleRate, int newBlockSize, AudioProcessorGraph*);
         void unprepare();
 
-        CARLA_DECLARE_NON_COPY_CLASS (Node)
+        CARLA_DECLARE_NON_COPYABLE (Node)
     };
 
     //==============================================================================
@@ -342,7 +366,7 @@ public:
                                 AudioSampleBuffer& cvOutBuffer,
                                 MidiBuffer& midiMessages);
 
-        CARLA_DECLARE_NON_COPY_CLASS (AudioGraphIOProcessor)
+        CARLA_DECLARE_NON_COPYABLE (AudioGraphIOProcessor)
     };
 
     //==============================================================================
@@ -394,7 +418,7 @@ public:
     void buildRenderingSequence();
     bool isAnInputTo (uint32 possibleInputId, uint32 possibleDestinationId, int recursionCheck) const;
 
-    CARLA_DECLARE_NON_COPY_CLASS (AudioProcessorGraph)
+    CARLA_DECLARE_NON_COPYABLE (AudioProcessorGraph)
 };
 
 }

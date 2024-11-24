@@ -31,6 +31,10 @@
 #define CARLA_JOIN_MACRO_HELPER(a, b) a ## b
 #define CARLA_JOIN_MACRO(item1, item2) CARLA_JOIN_MACRO_HELPER(item1, item2)
 
+/** Same but for joining 3 items */
+#define CARLA_JOIN_MACRO_HELPER3(a, b, c) a ## b ## c
+#define CARLA_JOIN_MACRO3(item1, item2, item3) CARLA_JOIN_MACRO_HELPER3(item1, item2, item3)
+
 #ifdef DEBUG
 /** This macro lets you embed a leak-detecting object inside a class.
     To use it, simply declare a CARLA_LEAK_DETECTOR(YourClassName) inside a private section
@@ -53,13 +57,13 @@
     ::LeakedObjectDetector<ClassName> CARLA_JOIN_MACRO(leakDetector_, ClassName);
 
 # define CARLA_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassName) \
-    CARLA_DECLARE_NON_COPY_CLASS(ClassName)                       \
+    CARLA_DECLARE_NON_COPYABLE(ClassName)                       \
     CARLA_LEAK_DETECTOR(ClassName)
 #else
 /** Don't use leak detection on release builds. */
 # define CARLA_LEAK_DETECTOR(ClassName)
 # define CARLA_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassName) \
-    CARLA_DECLARE_NON_COPY_CLASS(ClassName)
+    CARLA_DECLARE_NON_COPYABLE(ClassName)
 #endif
 
 //=====================================================================================================================

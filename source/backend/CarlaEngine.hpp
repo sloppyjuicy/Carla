@@ -1,19 +1,5 @@
-/*
- * Carla Plugin Host
- * Copyright (C) 2011-2020 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the doc/GPL.txt file.
- */
+// SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef CARLA_ENGINE_HPP_INCLUDED
 #define CARLA_ENGINE_HPP_INCLUDED
@@ -53,14 +39,14 @@ enum EngineType {
     kEngineTypeJack = 1,
 
     /*!
-     * JUCE engine type, used to provide Native Audio and MIDI support.
-     */
-    kEngineTypeJuce = 2,
-
-    /*!
      * RtAudio engine type, used to provide Native Audio and MIDI support.
      */
-    kEngineTypeRtAudio = 3,
+    kEngineTypeRtAudio = 2,
+
+    /*!
+     * SDL engine type, used to provide Native Audio support.
+     */
+    kEngineTypeSDL = 3,
 
     /*!
      * Plugin engine type, used to export the engine as a plugin.
@@ -271,6 +257,8 @@ struct CARLA_API EngineOptions {
     const char* pathVST3;
     const char* pathSF2;
     const char* pathSFZ;
+    const char* pathJSFX;
+    const char* pathCLAP;
 
     const char* binaryDir;
     const char* resourceDir;
@@ -292,14 +280,14 @@ struct CARLA_API EngineOptions {
 
         Wine() noexcept;
         ~Wine() noexcept;
-        CARLA_DECLARE_NON_COPY_STRUCT(Wine)
+        CARLA_DECLARE_NON_COPYABLE(Wine)
     } wine;
 #endif
 
 #ifndef DOXYGEN
     EngineOptions() noexcept;
     ~EngineOptions() noexcept;
-    CARLA_DECLARE_NON_COPY_STRUCT(EngineOptions)
+    CARLA_DECLARE_NON_COPYABLE(EngineOptions)
 #endif
 };
 
@@ -425,7 +413,7 @@ protected:
     const bool     kIsInput;
     const uint32_t kIndexOffset;
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaEnginePort)
+    CARLA_DECLARE_NON_COPYABLE(CarlaEnginePort)
 #endif
 };
 
@@ -472,7 +460,7 @@ public:
 protected:
     float* fBuffer;
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaEngineAudioPort)
+    CARLA_DECLARE_NON_COPYABLE(CarlaEngineAudioPort)
 #endif
 };
 
@@ -534,7 +522,7 @@ protected:
     float* fBuffer;
     float fMinimum, fMaximum;
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaEngineCVPort)
+    CARLA_DECLARE_NON_COPYABLE(CarlaEngineCVPort)
 #endif
 };
 
@@ -625,7 +613,7 @@ protected:
     friend class CarlaPluginInstance;
     friend class CarlaEngineCVSourcePorts;
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaEngineEventPort)
+    CARLA_DECLARE_NON_COPYABLE(CarlaEngineEventPort)
 #endif
 };
 
@@ -681,7 +669,7 @@ protected:
      */
     CarlaEngineCVSourcePorts();
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaEngineCVSourcePorts)
+    CARLA_DECLARE_NON_COPYABLE(CarlaEngineCVSourcePorts)
 #endif
 };
 
@@ -794,7 +782,7 @@ protected:
      */
     CarlaEngineClient(ProtectedData* pData);
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaEngineClient)
+    CARLA_DECLARE_NON_COPYABLE(CarlaEngineClient)
 #endif
 };
 
@@ -900,6 +888,12 @@ public:
      * Idle engine.
      */
     virtual void idle() noexcept;
+
+    /*!
+     * Check if engine implementation calls idle on the main thread.
+     * Typically true unless running Carla as a plugin.
+     */
+    virtual bool hasIdleOnMainThread() const noexcept = 0;
 
     /*!
      * Check if engine is running.
@@ -1305,13 +1299,13 @@ protected:
      */
     friend class CarlaEngineEventPort;
     friend class CarlaEngineOsc;
-    friend class CarlaEngineThread;
+    friend class CarlaEngineRunner;
     friend class CarlaPluginInstance;
     friend class EngineInternalGraph;
     friend class PendingRtEventsRunner;
     friend class ScopedActionLock;
     friend class ScopedEngineEnvironmentLocker;
-    friend class ScopedThreadStopper;
+    friend class ScopedRunnerStopper;
     friend class PatchbayGraph;
     friend struct ExternalGraph;
     friend struct RackGraph;
@@ -1341,6 +1335,7 @@ protected:
      */
     void setPluginPeaksRT(uint pluginId, float const inPeaks[2], float const outPeaks[2]) noexcept;
 
+public:
     /*!
      * Common save project function for main engine and plugin.
      */
@@ -1351,6 +1346,7 @@ protected:
      */
     bool loadProjectInternal(water::XmlDocument& xmlDoc, bool alwaysLoadConnections);
 
+protected:
     // -------------------------------------------------------------------
     // Helper functions
 
@@ -1384,7 +1380,7 @@ protected:
 
     // -------------------------------------------------------------------
 
-    CARLA_DECLARE_NON_COPY_CLASS(CarlaEngine)
+    CARLA_DECLARE_NON_COPYABLE(CarlaEngine)
 };
 
 /**@}*/

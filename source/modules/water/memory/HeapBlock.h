@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017-2018 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2022 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -93,20 +93,6 @@ public:
     {
         std::free (data);
     }
-
-   #if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-    HeapBlock (HeapBlock&& other) noexcept
-        : data (other.data)
-    {
-        other.data = nullptr;
-    }
-
-    HeapBlock& operator= (HeapBlock&& other) noexcept
-    {
-        std::swap (data, other.data);
-        return *this;
-    }
-   #endif
 
     //==============================================================================
     /** Returns a raw pointer to the allocated data.
@@ -253,6 +239,14 @@ public:
         zeromem (data, sizeof (ElementType) * numElements);
     }
 
+    /** Release this object's data ownership, returning the data pointer. */
+    ElementType* release() noexcept
+    {
+        ElementType* const r = data;
+        data = nullptr;
+        return r;
+    }
+
     /** This typedef can be used to get the type of the heapblock's elements. */
     typedef ElementType Type;
 
@@ -260,7 +254,7 @@ private:
     //==============================================================================
     ElementType* data;
 
-    CARLA_DECLARE_NON_COPY_CLASS(HeapBlock)
+    CARLA_DECLARE_NON_COPYABLE(HeapBlock)
 };
 
 }

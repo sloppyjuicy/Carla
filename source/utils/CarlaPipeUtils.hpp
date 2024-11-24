@@ -1,6 +1,6 @@
 /*
  * Carla Pipe utils
- * Copyright (C) 2013-2018 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2013-2024 Filipe Coelho <falktx@falktx.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -24,7 +24,7 @@
 #ifdef BUILDING_CARLA
 # include "lv2/atom.h"
 #else
-# include "lv2/lv2plug.in/ns/ext/atom/atom.h"
+# include "lv2/atom/atom.h"
 #endif
 
 // -----------------------------------------------------------------------
@@ -140,9 +140,14 @@ public:
 
     /*!
      * Read the next line as a string.
-     * @note: @a value must be deleted if valid.
+     * @note: @a value must be freed if valid and allocateString is true.
      */
     bool readNextLineAsString(const char*& value, bool allocateString, uint32_t size = 0) const noexcept;
+
+    /*!
+     * Read the next line as a string, returning an allocated copy that needs to be freed.
+     */
+    char* readNextLineAsString() const noexcept;
 
     // -------------------------------------------------------------------
     // write messages, must be locked before calling
@@ -170,9 +175,10 @@ public:
     bool writeEmptyMessage() const noexcept;
 
     /*!
-     * Flush all messages currently in cache.
+     * Sync all messages currently in cache.
+     * This call will forcely write any messages in cache to any relevant IO.
      */
-    bool flushMessages() const noexcept;
+    bool syncMessages() const noexcept;
 
     // -------------------------------------------------------------------
     // write prepared messages, no lock or flush needed (done internally)
@@ -279,13 +285,21 @@ public:
      * Start the pipe server using @a filename with 2 arguments.
      * @see fail()
      */
-    bool startPipeServer(const char* const filename, const char* const arg1, const char* const arg2, const int size = -1) noexcept;
+    bool startPipeServer(const char* helperTool, const char* filename, const char* arg1, const char* arg2,
+                         int size = -1, int timeOutMilliseconds = -1) noexcept;
+
+    /*!
+     * Start the pipe server using @a filename with 2 arguments.
+     * @see fail()
+     */
+    bool startPipeServer(const char* filename, const char* arg1, const char* arg2,
+                         int size = -1, int timeOutMilliseconds = -1) noexcept;
 
     /*!
      * Stop the pipe server.
      * This will send a quit message to the client, wait for it to close for @a timeOutMilliseconds, and close the pipes.
      */
-    void stopPipeServer(const uint32_t timeOutMilliseconds) noexcept;
+    void stopPipeServer(uint32_t timeOutMilliseconds) noexcept;
 
     /*!
      * Close the pipes without waiting for the child process to terminate.

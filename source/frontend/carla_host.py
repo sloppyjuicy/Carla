@@ -1,20 +1,6 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-# Carla host code
-# Copyright (C) 2011-2021 Filipe Coelho <falktx@falktx.com>
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License as
-# published by the Free Software Foundation; either version 2 of
-# the License, or any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# For a full copy of the GNU General Public License see the doc/GPL.txt file.
+# SPDX-FileCopyrightText: 2011-2024 Filipe Coelho <falktx@falktx.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # ------------------------------------------------------------------------------------------------------------
 # Imports (Global)
@@ -29,23 +15,78 @@ from ctypes import (
 )
 
 # ------------------------------------------------------------------------------------------------------------
-# Imports (PyQt5)
+# Imports (PyQt)
 
-# This fails in some configurations, assume >= 5.6.0 in that case
-try:
-    from PyQt5.Qt import PYQT_VERSION
-except ImportError:
-    PYQT_VERSION = 0x50600
+from qt_compat import qt_config
 
-from PyQt5.QtCore import (
-    QT_VERSION, qCritical, QBuffer, QEventLoop, QFileInfo, QIODevice, QMimeData, QModelIndex, QPointF, QTimer, QEvent
-)
-from PyQt5.QtGui import (
-    QImage, QImageWriter, QPainter, QPalette, QBrush
-)
-from PyQt5.QtWidgets import (
-    QAction, QApplication, QInputDialog, QFileSystemModel, QListWidgetItem, QGraphicsView, QMainWindow
-)
+if qt_config == 5:
+    # This fails in some configurations, assume >= 5.6.0 in that case
+    try:
+        from PyQt5.Qt import PYQT_VERSION
+    except ImportError:
+        PYQT_VERSION = 0x50600
+
+    from PyQt5.QtCore import (
+        QT_VERSION,
+        qCritical,
+        QBuffer,
+        QEvent,
+        QEventLoop,
+        QFileInfo,
+        QIODevice,
+        QMimeData,
+        QModelIndex,
+        QPointF,
+        QTimer,
+    )
+    from PyQt5.QtGui import (
+        QBrush,
+        QImage,
+        QImageWriter,
+        QPainter,
+        QPalette,
+    )
+    from PyQt5.QtWidgets import (
+        QAction,
+        QApplication,
+        QInputDialog,
+        QFileSystemModel,
+        QListWidgetItem,
+        QGraphicsView,
+        QMainWindow,
+    )
+
+elif qt_config == 6:
+    from PyQt6.QtCore import (
+        PYQT_VERSION,
+        QT_VERSION,
+        qCritical,
+        QBuffer,
+        QEvent,
+        QEventLoop,
+        QFileInfo,
+        QIODevice,
+        QMimeData,
+        QModelIndex,
+        QPointF,
+        QTimer,
+    )
+    from PyQt6.QtGui import (
+        QAction,
+        QBrush,
+        QFileSystemModel,
+        QImage,
+        QImageWriter,
+        QPainter,
+        QPalette,
+    )
+    from PyQt6.QtWidgets import (
+        QApplication,
+        QInputDialog,
+        QListWidgetItem,
+        QGraphicsView,
+        QMainWindow,
+    )
 
 # ------------------------------------------------------------------------------------------------------------
 # Imports (Custom)
@@ -53,8 +94,10 @@ from PyQt5.QtWidgets import (
 import ui_carla_host
 
 from carla_app import *
+from carla_backend import *
 from carla_backend_qt import CarlaHostQtDLL, CarlaHostQtNull
-from carla_database import *
+from carla_frontend import CarlaFrontendLib
+from carla_shared import *
 from carla_settings import *
 from carla_utils import *
 from carla_widgets import *
@@ -159,12 +202,13 @@ class HostWindow(QMainWindow):
         self.fPluginCount = 0
         self.fPluginList  = []
 
-        self.fPluginDatabaseDialog = None
+        self.fPluginListDialog = None
         self.fFavoritePlugins = []
 
         self.fProjectFilename  = ""
         self.fIsProjectLoading = False
         self.fCurrentlyRemovingAllPlugins = False
+        self.fHasLoadedLv2Plugins = False
 
         self.fLastTransportBPM   = 0.0
         self.fLastTransportFrame = 0
@@ -200,7 +244,7 @@ class HostWindow(QMainWindow):
             self.fSessionManagerName = "Plugin"
         elif LADISH_APP_NAME:
             self.fClientName         = LADISH_APP_NAME
-            self.fSessionManagerName = "LADISH"
+            self.fSessionManagerName = ""
         elif NSM_URL and host.nsmOK:
             self.fClientName         = "Carla.tmp"
             self.fSessionManagerName = "Non Session Manager TMP"
@@ -427,7 +471,6 @@ class HostWindow(QMainWindow):
             self.ui.act_file_quit.setMenuRole(QAction.QuitRole)
             self.ui.act_settings_configure.setMenuRole(QAction.PreferencesRole)
             self.ui.act_help_about.setMenuRole(QAction.AboutRole)
-            self.ui.act_help_about_juce.setMenuRole(QAction.ApplicationSpecificRole)
             self.ui.act_help_about_qt.setMenuRole(QAction.AboutQtRole)
             self.ui.menu_Settings.setTitle("Panels")
 
@@ -517,7 +560,6 @@ class HostWindow(QMainWindow):
         self.ui.act_settings_configure.triggered.connect(self.slot_configureCarla)
 
         self.ui.act_help_about.triggered.connect(self.slot_aboutCarla)
-        self.ui.act_help_about_juce.triggered.connect(self.slot_aboutJuce)
         self.ui.act_help_about_qt.triggered.connect(self.slot_aboutQt)
 
         self.ui.cb_disk.currentIndexChanged.connect(self.slot_diskFolderChanged)
@@ -541,6 +583,7 @@ class HostWindow(QMainWindow):
         self.ui.keyboard.noteOff.connect(self.slot_noteOff)
 
         self.ui.tabWidget.currentChanged.connect(self.slot_tabChanged)
+        self.ui.toolBar.visibilityChanged.connect(self.slot_toolbarVisibilityChanged)
 
         if withCanvas:
             self.ui.act_canvas_show_internal.triggered.connect(self.slot_canvasShowInternal)
@@ -619,10 +662,6 @@ class HostWindow(QMainWindow):
         if "link" not in features:
             self.ui.cb_transport_link.setEnabled(False)
             self.ui.cb_transport_link.setVisible(False)
-
-        if "juce" not in features:
-            self.ui.act_help_about_juce.setEnabled(False)
-            self.ui.act_help_about_juce.setVisible(False)
 
         # Plugin needs to have timers always running so it receives messages
         if self.host.isPlugin or self.host.isRemote:
@@ -927,10 +966,11 @@ class HostWindow(QMainWindow):
 
     @pyqtSlot()
     def slot_engineStart(self):
-        audioDriver = setEngineSettings(self.host)
-        firstInit   = self.fFirstEngineInit
+        audioDriver = setEngineSettings(self.host, self.fSavedSettings)
 
+        firstInit = self.fFirstEngineInit
         self.fFirstEngineInit = False
+
         self.ui.text_logs.appendPlainText("======= Starting engine =======")
 
         if self.host.engine_init(audioDriver, self.fClientName):
@@ -949,9 +989,11 @@ class HostWindow(QMainWindow):
         audioError = self.host.get_last_error()
 
         if audioError:
-            QMessageBox.critical(self, self.tr("Error"), self.tr("Could not connect to Audio backend '%s', possible reasons:\n%s" % (audioDriver, audioError)))
+            QMessageBox.critical(self, self.tr("Error"),
+                                 self.tr("Could not connect to Audio backend '%s', possible reasons:\n%s" % (audioDriver, audioError)))
         else:
-            QMessageBox.critical(self, self.tr("Error"), self.tr("Could not connect to Audio backend '%s'" % audioDriver))
+            QMessageBox.critical(self, self.tr("Error"),
+                                 self.tr("Could not connect to Audio backend '%s'" % audioDriver))
 
     @pyqtSlot()
     def slot_engineStop(self, forced = False):
@@ -972,14 +1014,39 @@ class HostWindow(QMainWindow):
 
     @pyqtSlot()
     def slot_engineConfig(self):
-        dialog = RuntimeDriverSettingsW(self.fParentOrSelf, self.host)
+        engineRunning = self.host.is_engine_running()
+
+        if engineRunning:
+            dialog = RuntimeDriverSettingsW(self.fParentOrSelf, self.host)
+
+        else:
+            if self.host.isPlugin:
+                driverName = "Plugin"
+                driverIndex = 0
+            elif self.host.audioDriverForced:
+                driverName = self.host.audioDriverForced
+                driverIndex = 0
+            else:
+                settings = QSafeSettings()
+                driverName = settings.value(CARLA_KEY_ENGINE_AUDIO_DRIVER, CARLA_DEFAULT_AUDIO_DRIVER, str)
+                for i in range(self.host.get_engine_driver_count()):
+                    if self.host.get_engine_driver_name(i) == driverName:
+                        driverIndex = i
+                        break
+                else:
+                    driverIndex = -1
+                del settings
+            dialog = DriverSettingsW(self.fParentOrSelf, self.host, driverIndex, driverName)
+            dialog.ui.ico_restart.hide()
+            dialog.ui.label_restart.hide()
+            dialog.adjustSize()
 
         if not dialog.exec_():
             return
 
         audioDevice, bufferSize, sampleRate = dialog.getValues()
 
-        if self.host.is_engine_running():
+        if engineRunning:
             self.host.set_engine_buffer_size_and_sample_rate(bufferSize, sampleRate)
         else:
             self.host.set_engine_option(ENGINE_OPTION_AUDIO_DEVICE, 0, audioDevice)
@@ -1178,15 +1245,33 @@ class HostWindow(QMainWindow):
     # Plugins (menu actions)
 
     def showAddPluginDialog(self):
-        if self.fPluginDatabaseDialog is None:
-            self.fPluginDatabaseDialog = PluginDatabaseW(self.fParentOrSelf, self.host,
-                                                         self.fSavedSettings[CARLA_KEY_MAIN_SYSTEM_ICONS])
-        dialog = self.fPluginDatabaseDialog
+        # TODO self.fHasLoadedLv2Plugins
+        if self.fPluginListDialog is None:
+            hostSettings = {
+                'showPluginBridges': self.fSavedSettings[CARLA_KEY_EXPERIMENTAL_PLUGIN_BRIDGES],
+                'showWineBridges': self.fSavedSettings[CARLA_KEY_EXPERIMENTAL_WINE_BRIDGES],
+                'useSystemIcons': self.fSavedSettings[CARLA_KEY_MAIN_SYSTEM_ICONS],
+                'wineAutoPrefix': self.fSavedSettings[CARLA_KEY_WINE_AUTO_PREFIX],
+                'wineExecutable': self.fSavedSettings[CARLA_KEY_WINE_EXECUTABLE],
+                'wineFallbackPrefix': self.fSavedSettings[CARLA_KEY_WINE_FALLBACK_PREFIX],
+            }
+            self.fPluginListDialog = d = gCarla.felib.createPluginListDialog(self.fParentOrSelf, hostSettings)
 
-        ret = dialog.exec_()
+            gCarla.felib.setPluginListDialogPath(d, PLUGIN_LADSPA, self.fSavedSettings[CARLA_KEY_PATHS_LADSPA])
+            gCarla.felib.setPluginListDialogPath(d, PLUGIN_DSSI, self.fSavedSettings[CARLA_KEY_PATHS_DSSI])
+            gCarla.felib.setPluginListDialogPath(d, PLUGIN_LV2, self.fSavedSettings[CARLA_KEY_PATHS_LV2])
+            gCarla.felib.setPluginListDialogPath(d, PLUGIN_VST2, self.fSavedSettings[CARLA_KEY_PATHS_VST2])
+            gCarla.felib.setPluginListDialogPath(d, PLUGIN_VST3, self.fSavedSettings[CARLA_KEY_PATHS_VST3])
+            gCarla.felib.setPluginListDialogPath(d, PLUGIN_SF2, self.fSavedSettings[CARLA_KEY_PATHS_SF2])
+            gCarla.felib.setPluginListDialogPath(d, PLUGIN_SFZ, self.fSavedSettings[CARLA_KEY_PATHS_SFZ])
+            gCarla.felib.setPluginListDialogPath(d, PLUGIN_JSFX, self.fSavedSettings[CARLA_KEY_PATHS_JSFX])
+            gCarla.felib.setPluginListDialogPath(d, PLUGIN_CLAP, self.fSavedSettings[CARLA_KEY_PATHS_CLAP])
 
-        if dialog.fFavoritePluginsChanged:
-            self.fFavoritePlugins = dialog.fFavoritePlugins
+        ret = gCarla.felib.execPluginListDialog(self.fPluginListDialog)
+
+        # TODO
+        #if dialog.fFavoritePluginsChanged:
+            #self.fFavoritePlugins = dialog.fFavoritePlugins
 
         if not ret:
             return
@@ -1195,26 +1280,26 @@ class HostWindow(QMainWindow):
             QMessageBox.warning(self, self.tr("Warning"), self.tr("Cannot add new plugins while engine is stopped"))
             return
 
-        btype    = dialog.fRetPlugin['build']
-        ptype    = dialog.fRetPlugin['type']
-        filename = dialog.fRetPlugin['filename']
-        label    = dialog.fRetPlugin['label']
-        uniqueId = dialog.fRetPlugin['uniqueId']
-        extraPtr = self.getExtraPtr(dialog.fRetPlugin)
+        btype    = ret['build']
+        ptype    = ret['type']
+        filename = ret['filename']
+        label    = ret['label']
+        uniqueId = ret['uniqueId']
+        extraPtr = None
 
         return (btype, ptype, filename, label, uniqueId, extraPtr)
 
     def showAddJackAppDialog(self):
-        dialog = JackApplicationW(self.fParentOrSelf, self.fProjectFilename)
+        ret = gCarla.felib.createAndExecJackAppDialog(self.fParentOrSelf, self.fProjectFilename)
 
-        if not dialog.exec_():
+        if not ret:
             return
 
         if not self.host.is_engine_running():
             QMessageBox.warning(self, self.tr("Warning"), self.tr("Cannot add new plugins while engine is stopped"))
             return
 
-        return dialog.getCommandAndFlags()
+        return ret
 
     @pyqtSlot()
     def slot_favoritePluginAdd(self):
@@ -1321,16 +1406,16 @@ class HostWindow(QMainWindow):
         if data is None:
             return
 
-        filename, name, label = data
-
-        if not filename:
+        if not data['command']:
             CustomMessageBox(self, QMessageBox.Critical, self.tr("Error"), self.tr("Cannot add jack application"),
-                                   self.tr("command is empty"), QMessageBox.Ok, QMessageBox.Ok)
+                             self.tr("command is empty"), QMessageBox.Ok, QMessageBox.Ok)
             return
 
-        if not self.host.add_plugin(BINARY_NATIVE, PLUGIN_JACK, filename, name, label, 0, None, PLUGIN_OPTIONS_NULL):
+        if not self.host.add_plugin(BINARY_NATIVE, PLUGIN_JACK,
+                                    data['command'], data['name'], data['labelSetup'],
+                                    0, None, PLUGIN_OPTIONS_NULL):
             CustomMessageBox(self, QMessageBox.Critical, self.tr("Error"), self.tr("Failed to load plugin"),
-                                   self.host.get_last_error(), QMessageBox.Ok, QMessageBox.Ok)
+                             self.host.get_last_error(), QMessageBox.Ok, QMessageBox.Ok)
 
     # --------------------------------------------------------------------------------------------------------
     # Plugins (macros)
@@ -1431,19 +1516,22 @@ class HostWindow(QMainWindow):
     # --------------------------------------------------------------------------------------------------------
     # Plugins (host callbacks)
 
-    @pyqtSlot(int, str)
-    def slot_handlePluginAddedCallback(self, pluginId, pluginName):
+    @pyqtSlot(int, int, str)
+    def slot_handlePluginAddedCallback(self, pluginId, pluginType, pluginName):
         if pluginId != self.fPluginCount:
             print("ERROR: pluginAdded mismatch Id:", pluginId, self.fPluginCount)
             pitem = self.getPluginItem(pluginId)
             pitem.recreateWidget()
             return
 
-        pitem = self.ui.listWidget.createItem(pluginId)
+        pitem = self.ui.listWidget.createItem(pluginId, self.fSavedSettings[CARLA_KEY_MAIN_CLASSIC_SKIN])
         self.fPluginList.append(pitem)
         self.fPluginCount += 1
 
         self.ui.act_plugin_remove_all.setEnabled(self.fPluginCount > 0)
+
+        if pluginType == PLUGIN_LV2:
+            self.fHasLoadedLv2Plugins = True
 
     @pyqtSlot(int)
     def slot_handlePluginRemovedCallback(self, pluginId):
@@ -1548,7 +1636,7 @@ class HostWindow(QMainWindow):
             self.ui.graphicsView.setRenderHint(QPainter.SmoothPixmapTransform, fullAA)
             self.ui.graphicsView.setRenderHint(QPainter.TextAntialiasing, fullAA)
 
-            if self.fSavedSettings[CARLA_KEY_CANVAS_USE_OPENGL] and hasGL:
+            if self.fSavedSettings[CARLA_KEY_CANVAS_USE_OPENGL] and hasGL and QPainter.HighQualityAntialiasing is not None:
                 self.ui.graphicsView.setRenderHint(QPainter.HighQualityAntialiasing, self.fSavedSettings[CARLA_KEY_CANVAS_HQ_ANTIALIASING])
 
         else:
@@ -1907,6 +1995,10 @@ class HostWindow(QMainWindow):
     def loadSettings(self, firstTime):
         settings = QSafeSettings()
 
+        if self.fPluginListDialog is not None:
+            gCarla.felib.destroyPluginListDialog(self.fPluginListDialog)
+            self.fPluginListDialog = None
+
         if firstTime:
             geometry = settings.value("Geometry", QByteArray(), QByteArray)
             if not geometry.isNull():
@@ -1914,8 +2006,10 @@ class HostWindow(QMainWindow):
 
             showToolbar = settings.value("ShowToolbar", True, bool)
             self.ui.act_settings_show_toolbar.setChecked(showToolbar)
+            self.ui.toolBar.blockSignals(True)
             self.ui.toolBar.setEnabled(showToolbar)
             self.ui.toolBar.setVisible(showToolbar)
+            self.ui.toolBar.blockSignals(False)
 
             #if settings.contains("SplitterState"):
                 #self.ui.splitter.restoreState(settings.value("SplitterState", b""))
@@ -1953,10 +2047,19 @@ class HostWindow(QMainWindow):
             QTimer.singleShot(100, self.slot_restoreCanvasScrollbarValues)
 
         # TODO - complete this
+        oldSettings = self.fSavedSettings
+
+        if self.host.audioDriverForced is not None:
+            audioDriver = self.host.audioDriverForced
+        else:
+            audioDriver = settings.value(CARLA_KEY_ENGINE_AUDIO_DRIVER, CARLA_DEFAULT_AUDIO_DRIVER, str)
+
+        audioDriverPrefix = CARLA_KEY_ENGINE_DRIVER_PREFIX + audioDriver
 
         self.fSavedSettings = {
             CARLA_KEY_MAIN_PROJECT_FOLDER:      settings.value(CARLA_KEY_MAIN_PROJECT_FOLDER,      CARLA_DEFAULT_MAIN_PROJECT_FOLDER,      str),
             CARLA_KEY_MAIN_CONFIRM_EXIT:        settings.value(CARLA_KEY_MAIN_CONFIRM_EXIT,        CARLA_DEFAULT_MAIN_CONFIRM_EXIT,        bool),
+            CARLA_KEY_MAIN_CLASSIC_SKIN:        settings.value(CARLA_KEY_MAIN_CLASSIC_SKIN,        CARLA_DEFAULT_MAIN_CLASSIC_SKIN,        bool),
             CARLA_KEY_MAIN_REFRESH_INTERVAL:    settings.value(CARLA_KEY_MAIN_REFRESH_INTERVAL,    CARLA_DEFAULT_MAIN_REFRESH_INTERVAL,    int),
             CARLA_KEY_MAIN_SYSTEM_ICONS:        settings.value(CARLA_KEY_MAIN_SYSTEM_ICONS,        CARLA_DEFAULT_MAIN_SYSTEM_ICONS,        bool),
             CARLA_KEY_MAIN_EXPERIMENTAL:        settings.value(CARLA_KEY_MAIN_EXPERIMENTAL,        CARLA_DEFAULT_MAIN_EXPERIMENTAL,        bool),
@@ -1973,6 +2076,51 @@ class HostWindow(QMainWindow):
             CARLA_KEY_CANVAS_FULL_REPAINTS:     settings.value(CARLA_KEY_CANVAS_FULL_REPAINTS,     CARLA_DEFAULT_CANVAS_FULL_REPAINTS,     bool),
             CARLA_KEY_CUSTOM_PAINTING:         (settings.value(CARLA_KEY_MAIN_USE_PRO_THEME,    True,   bool) and
                                                 settings.value(CARLA_KEY_MAIN_PRO_THEME_COLOR, "Black", str).lower() == "black"),
+
+            # engine
+            CARLA_KEY_ENGINE_AUDIO_DRIVER: audioDriver,
+            CARLA_KEY_ENGINE_AUDIO_DEVICE: settings.value(audioDriverPrefix+"/Device", "", str),
+            CARLA_KEY_ENGINE_BUFFER_SIZE: settings.value(audioDriverPrefix+"/BufferSize", CARLA_DEFAULT_AUDIO_BUFFER_SIZE, int),
+            CARLA_KEY_ENGINE_SAMPLE_RATE: settings.value(audioDriverPrefix+"/SampleRate", CARLA_DEFAULT_AUDIO_SAMPLE_RATE, int),
+            CARLA_KEY_ENGINE_TRIPLE_BUFFER: settings.value(audioDriverPrefix+"/TripleBuffer", CARLA_DEFAULT_AUDIO_TRIPLE_BUFFER, bool),
+
+            # file paths
+            CARLA_KEY_PATHS_AUDIO: splitter.join(settings.value(CARLA_KEY_PATHS_AUDIO, CARLA_DEFAULT_FILE_PATH_AUDIO, list)),
+            CARLA_KEY_PATHS_MIDI: splitter.join(settings.value(CARLA_KEY_PATHS_MIDI,  CARLA_DEFAULT_FILE_PATH_MIDI, list)),
+
+            # plugin paths
+            CARLA_KEY_PATHS_LADSPA: splitter.join(settings.value(CARLA_KEY_PATHS_LADSPA, CARLA_DEFAULT_LADSPA_PATH, list)),
+            CARLA_KEY_PATHS_DSSI: splitter.join(settings.value(CARLA_KEY_PATHS_DSSI, CARLA_DEFAULT_DSSI_PATH, list)),
+            CARLA_KEY_PATHS_LV2: splitter.join(settings.value(CARLA_KEY_PATHS_LV2, CARLA_DEFAULT_LV2_PATH, list)),
+            CARLA_KEY_PATHS_VST2: splitter.join(settings.value(CARLA_KEY_PATHS_VST2, CARLA_DEFAULT_VST2_PATH, list)),
+            CARLA_KEY_PATHS_VST3: splitter.join(settings.value(CARLA_KEY_PATHS_VST3, CARLA_DEFAULT_VST3_PATH, list)),
+            CARLA_KEY_PATHS_SF2: splitter.join(settings.value(CARLA_KEY_PATHS_SF2, CARLA_DEFAULT_SF2_PATH, list)),
+            CARLA_KEY_PATHS_SFZ: splitter.join(settings.value(CARLA_KEY_PATHS_SFZ, CARLA_DEFAULT_SFZ_PATH, list)),
+            CARLA_KEY_PATHS_JSFX: splitter.join(settings.value(CARLA_KEY_PATHS_JSFX, CARLA_DEFAULT_JSFX_PATH, list)),
+            CARLA_KEY_PATHS_CLAP: splitter.join(settings.value(CARLA_KEY_PATHS_CLAP, CARLA_DEFAULT_CLAP_PATH, list)),
+
+            # osc
+            CARLA_KEY_OSC_ENABLED: settings.value(CARLA_KEY_OSC_ENABLED, CARLA_DEFAULT_OSC_ENABLED, bool),
+            CARLA_KEY_OSC_TCP_PORT_ENABLED: settings.value(CARLA_KEY_OSC_TCP_PORT_ENABLED, CARLA_DEFAULT_OSC_TCP_PORT_ENABLED, bool),
+            CARLA_KEY_OSC_TCP_PORT_RANDOM: settings.value(CARLA_KEY_OSC_TCP_PORT_RANDOM, CARLA_DEFAULT_OSC_TCP_PORT_RANDOM, bool),
+            CARLA_KEY_OSC_TCP_PORT_NUMBER: settings.value(CARLA_KEY_OSC_TCP_PORT_NUMBER, CARLA_DEFAULT_OSC_TCP_PORT_NUMBER, int),
+            CARLA_KEY_OSC_UDP_PORT_ENABLED: settings.value(CARLA_KEY_OSC_UDP_PORT_ENABLED, CARLA_DEFAULT_OSC_UDP_PORT_ENABLED, bool),
+            CARLA_KEY_OSC_UDP_PORT_RANDOM: settings.value(CARLA_KEY_OSC_UDP_PORT_RANDOM, CARLA_DEFAULT_OSC_UDP_PORT_RANDOM, bool),
+            CARLA_KEY_OSC_UDP_PORT_NUMBER: settings.value(CARLA_KEY_OSC_UDP_PORT_NUMBER, CARLA_DEFAULT_OSC_UDP_PORT_NUMBER, int),
+
+            # wine
+            CARLA_KEY_WINE_EXECUTABLE: settings.value(CARLA_KEY_WINE_EXECUTABLE, CARLA_DEFAULT_WINE_EXECUTABLE, str),
+            CARLA_KEY_WINE_AUTO_PREFIX: settings.value(CARLA_KEY_WINE_AUTO_PREFIX, CARLA_DEFAULT_WINE_AUTO_PREFIX, bool),
+            CARLA_KEY_WINE_FALLBACK_PREFIX: settings.value(CARLA_KEY_WINE_FALLBACK_PREFIX, CARLA_DEFAULT_WINE_FALLBACK_PREFIX, str),
+            CARLA_KEY_WINE_RT_PRIO_ENABLED: settings.value(CARLA_KEY_WINE_RT_PRIO_ENABLED, CARLA_DEFAULT_WINE_RT_PRIO_ENABLED, bool),
+            CARLA_KEY_WINE_BASE_RT_PRIO: settings.value(CARLA_KEY_WINE_BASE_RT_PRIO, CARLA_DEFAULT_WINE_BASE_RT_PRIO, int),
+            CARLA_KEY_WINE_SERVER_RT_PRIO: settings.value(CARLA_KEY_WINE_SERVER_RT_PRIO, CARLA_DEFAULT_WINE_SERVER_RT_PRIO, int),
+
+            # experimental switches
+            CARLA_KEY_EXPERIMENTAL_PLUGIN_BRIDGES:
+                settings.value(CARLA_KEY_EXPERIMENTAL_PLUGIN_BRIDGES, CARLA_DEFAULT_EXPERIMENTAL_PLUGIN_BRIDGES, bool),
+            CARLA_KEY_EXPERIMENTAL_WINE_BRIDGES:
+                settings.value(CARLA_KEY_EXPERIMENTAL_WINE_BRIDGES, CARLA_DEFAULT_EXPERIMENTAL_WINE_BRIDGES, bool),
         }
 
         if not self.host.isControl:
@@ -1990,8 +2138,16 @@ class HostWindow(QMainWindow):
 
         self.fMiniCanvasUpdateTimeout = 1000 if self.fSavedSettings[CARLA_KEY_CANVAS_FANCY_EYE_CANDY] else 0
 
-        setEngineSettings(self.host)
+        setEngineSettings(self.host, self.fSavedSettings)
         self.restartTimersIfNeeded()
+
+        if oldSettings.get(CARLA_KEY_MAIN_CLASSIC_SKIN, None) not in (self.fSavedSettings[CARLA_KEY_MAIN_CLASSIC_SKIN], None):
+            newSkin = "classic" if self.fSavedSettings[CARLA_KEY_MAIN_CLASSIC_SKIN] else None
+
+            for pitem in self.fPluginList:
+                if pitem is None:
+                    continue
+                pitem.recreateWidget(newSkin = newSkin)
 
         return settings
 
@@ -2020,8 +2176,10 @@ class HostWindow(QMainWindow):
 
     @pyqtSlot(bool)
     def slot_showToolbar(self, yesNo):
+        self.ui.toolBar.blockSignals(True)
         self.ui.toolBar.setEnabled(yesNo)
         self.ui.toolBar.setVisible(yesNo)
+        self.ui.toolBar.blockSignals(False)
 
     @pyqtSlot(bool)
     def slot_showCanvasMeters(self, yesNo):
@@ -2058,10 +2216,6 @@ class HostWindow(QMainWindow):
     @pyqtSlot()
     def slot_aboutCarla(self):
         CarlaAboutW(self.fParentOrSelf, self.host).exec_()
-
-    @pyqtSlot()
-    def slot_aboutJuce(self):
-        JuceAboutW(self.fParentOrSelf).exec_()
 
     @pyqtSlot()
     def slot_aboutQt(self):
@@ -2457,6 +2611,13 @@ class HostWindow(QMainWindow):
     # --------------------------------------------------------------------------------------------------------
     # Misc
 
+    @pyqtSlot(bool)
+    def slot_toolbarVisibilityChanged(self, visible):
+        self.ui.toolBar.blockSignals(True)
+        self.ui.toolBar.setEnabled(visible)
+        self.ui.toolBar.blockSignals(False)
+        self.ui.act_settings_show_toolbar.setChecked(visible)
+
     @pyqtSlot(int)
     def slot_tabChanged(self, index):
         if index != 1:
@@ -2681,8 +2842,10 @@ class HostWindow(QMainWindow):
             if MACOS:
                 nsViewPtr = int(self.winId())
                 winIdStr  = "%x" % gCarla.utils.cocoa_get_window(nsViewPtr)
-            else:
+            elif WINDOWS or QApplication.platformName() == "xcb":
                 winIdStr = "%x" % int(self.winId())
+            else:
+                winIdStr = "0"
             self.host.set_engine_option(ENGINE_OPTION_FRONTEND_WIN_ID, 0, winIdStr)
 
     def hideEvent(self, event):
@@ -2796,7 +2959,7 @@ class HostWindow(QMainWindow):
         fg_color = rack_pal.text().color()
         bg_value = 1.0 - bg_color.blackF()
         if bg_value != 0.0 and bg_value < min_value:
-            pad_color = bg_color.lighter(100*min_value/bg_value*value_fix)
+            pad_color = bg_color.lighter(int(100*min_value/bg_value*value_fix))
         else:
             pad_color = QColor.fromHsvF(0.0, 0.0, min_value*value_fix)
 
@@ -3031,7 +3194,7 @@ def engineCallback(host, action, pluginId, value1, value2, value3, valuef, value
     if action == ENGINE_CALLBACK_DEBUG:
         host.DebugCallback.emit(pluginId, value1, value2, value3, valuef, valueStr)
     elif action == ENGINE_CALLBACK_PLUGIN_ADDED:
-        host.PluginAddedCallback.emit(pluginId, valueStr)
+        host.PluginAddedCallback.emit(pluginId, value1, valueStr)
     elif action == ENGINE_CALLBACK_PLUGIN_REMOVED:
         host.PluginRemovedCallback.emit(pluginId)
     elif action == ENGINE_CALLBACK_PLUGIN_RENAMED:
@@ -3180,6 +3343,7 @@ def initHost(initName, libPrefix, isControl, isPlugin, failError, HostClass = No
 
     libname   = "libcarla_%s2.%s" % ("control" if isControl else "standalone", DLL_EXTENSION)
     libname   = os.path.join(pathBinaries, libname)
+    felibname = os.path.join(pathBinaries, "libcarla_frontend.%s" % (DLL_EXTENSION))
     utilsname = os.path.join(pathBinaries, "libcarla_utils.%s" % (DLL_EXTENSION))
 
     # --------------------------------------------------------------------------------------------------------
@@ -3220,6 +3384,12 @@ def initHost(initName, libPrefix, isControl, isPlugin, failError, HostClass = No
 
         if not isControl:
             host.nsmOK = host.nsm_init(os.getpid(), initName)
+
+    # --------------------------------------------------------------------------------------------------------
+    # Init frontend lib
+
+    if not gCarla.nogui:
+        gCarla.felib = CarlaFrontendLib(felibname)
 
     # --------------------------------------------------------------------------------------------------------
     # Init utils
@@ -3325,63 +3495,104 @@ def setHostSettings(host):
     if not (NSM_URL and host.nsmOK):
         host.set_engine_option(ENGINE_OPTION_CLIENT_NAME_PREFIX, 0, gCarla.cnprefix)
 
-# ------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------
 # Set Engine settings according to carla preferences. Returns selected audio driver.
 
-def setEngineSettings(host, oscPort = None):
+def setEngineSettings(host, settings, oscPort = None):
     # kdevelop likes this :)
     if False: host = CarlaHostNull()
 
-    # --------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
     # do nothing if control
 
     if host.isControl:
         return "Control"
 
-    # --------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
+    # fetch settings as needed
 
-    settings = QSafeSettings("falkTX", "Carla2")
+    if settings is None:
+        qsettings = QSafeSettings("falkTX", "Carla2")
 
-    # --------------------------------------------------------------------------------------------------------
+        if host.audioDriverForced is not None:
+            audioDriver = host.audioDriverForced
+        else:
+            audioDriver = qsettings.value(CARLA_KEY_ENGINE_AUDIO_DRIVER, CARLA_DEFAULT_AUDIO_DRIVER, str)
+
+        audioDriverPrefix = CARLA_KEY_ENGINE_DRIVER_PREFIX + audioDriver
+
+        settings = {
+            # engine
+            CARLA_KEY_ENGINE_AUDIO_DRIVER: audioDriver,
+            CARLA_KEY_ENGINE_AUDIO_DEVICE: qsettings.value(audioDriverPrefix+"/Device", "", str),
+            CARLA_KEY_ENGINE_BUFFER_SIZE: qsettings.value(audioDriverPrefix+"/BufferSize", CARLA_DEFAULT_AUDIO_BUFFER_SIZE, int),
+            CARLA_KEY_ENGINE_SAMPLE_RATE: qsettings.value(audioDriverPrefix+"/SampleRate", CARLA_DEFAULT_AUDIO_SAMPLE_RATE, int),
+            CARLA_KEY_ENGINE_TRIPLE_BUFFER: qsettings.value(audioDriverPrefix+"/TripleBuffer", CARLA_DEFAULT_AUDIO_TRIPLE_BUFFER, bool),
+
+            # file paths
+            CARLA_KEY_PATHS_AUDIO: splitter.join(qsettings.value(CARLA_KEY_PATHS_AUDIO, CARLA_DEFAULT_FILE_PATH_AUDIO, list)),
+            CARLA_KEY_PATHS_MIDI: splitter.join(qsettings.value(CARLA_KEY_PATHS_MIDI,  CARLA_DEFAULT_FILE_PATH_MIDI, list)),
+
+            # plugin paths
+            CARLA_KEY_PATHS_LADSPA: splitter.join(qsettings.value(CARLA_KEY_PATHS_LADSPA, CARLA_DEFAULT_LADSPA_PATH, list)),
+            CARLA_KEY_PATHS_DSSI: splitter.join(qsettings.value(CARLA_KEY_PATHS_DSSI, CARLA_DEFAULT_DSSI_PATH, list)),
+            CARLA_KEY_PATHS_LV2: splitter.join(qsettings.value(CARLA_KEY_PATHS_LV2, CARLA_DEFAULT_LV2_PATH, list)),
+            CARLA_KEY_PATHS_VST2: splitter.join(qsettings.value(CARLA_KEY_PATHS_VST2, CARLA_DEFAULT_VST2_PATH, list)),
+            CARLA_KEY_PATHS_VST3: splitter.join(qsettings.value(CARLA_KEY_PATHS_VST3, CARLA_DEFAULT_VST3_PATH, list)),
+            CARLA_KEY_PATHS_SF2: splitter.join(qsettings.value(CARLA_KEY_PATHS_SF2, CARLA_DEFAULT_SF2_PATH, list)),
+            CARLA_KEY_PATHS_SFZ: splitter.join(qsettings.value(CARLA_KEY_PATHS_SFZ, CARLA_DEFAULT_SFZ_PATH, list)),
+            CARLA_KEY_PATHS_JSFX: splitter.join(qsettings.value(CARLA_KEY_PATHS_JSFX, CARLA_DEFAULT_JSFX_PATH, list)),
+            CARLA_KEY_PATHS_CLAP: splitter.join(qsettings.value(CARLA_KEY_PATHS_CLAP, CARLA_DEFAULT_CLAP_PATH, list)),
+
+            # osc
+            CARLA_KEY_OSC_ENABLED: qsettings.value(CARLA_KEY_OSC_ENABLED, CARLA_DEFAULT_OSC_ENABLED, bool),
+            CARLA_KEY_OSC_TCP_PORT_ENABLED: qsettings.value(CARLA_KEY_OSC_TCP_PORT_ENABLED, CARLA_DEFAULT_OSC_TCP_PORT_ENABLED, bool),
+            CARLA_KEY_OSC_TCP_PORT_RANDOM: qsettings.value(CARLA_KEY_OSC_TCP_PORT_RANDOM, CARLA_DEFAULT_OSC_TCP_PORT_RANDOM, bool),
+            CARLA_KEY_OSC_TCP_PORT_NUMBER: qsettings.value(CARLA_KEY_OSC_TCP_PORT_NUMBER, CARLA_DEFAULT_OSC_TCP_PORT_NUMBER, int),
+            CARLA_KEY_OSC_UDP_PORT_ENABLED: qsettings.value(CARLA_KEY_OSC_UDP_PORT_ENABLED, CARLA_DEFAULT_OSC_UDP_PORT_ENABLED, bool),
+            CARLA_KEY_OSC_UDP_PORT_RANDOM: qsettings.value(CARLA_KEY_OSC_UDP_PORT_RANDOM, CARLA_DEFAULT_OSC_UDP_PORT_RANDOM, bool),
+            CARLA_KEY_OSC_UDP_PORT_NUMBER: qsettings.value(CARLA_KEY_OSC_UDP_PORT_NUMBER, CARLA_DEFAULT_OSC_UDP_PORT_NUMBER, int),
+
+            # wine
+            CARLA_KEY_WINE_EXECUTABLE: qsettings.value(CARLA_KEY_WINE_EXECUTABLE, CARLA_DEFAULT_WINE_EXECUTABLE, str),
+            CARLA_KEY_WINE_AUTO_PREFIX: qsettings.value(CARLA_KEY_WINE_AUTO_PREFIX, CARLA_DEFAULT_WINE_AUTO_PREFIX, bool),
+            CARLA_KEY_WINE_FALLBACK_PREFIX: qsettings.value(CARLA_KEY_WINE_FALLBACK_PREFIX, CARLA_DEFAULT_WINE_FALLBACK_PREFIX, str),
+            CARLA_KEY_WINE_RT_PRIO_ENABLED: qsettings.value(CARLA_KEY_WINE_RT_PRIO_ENABLED, CARLA_DEFAULT_WINE_RT_PRIO_ENABLED, bool),
+            CARLA_KEY_WINE_BASE_RT_PRIO: qsettings.value(CARLA_KEY_WINE_BASE_RT_PRIO, CARLA_DEFAULT_WINE_BASE_RT_PRIO, int),
+            CARLA_KEY_WINE_SERVER_RT_PRIO: qsettings.value(CARLA_KEY_WINE_SERVER_RT_PRIO, CARLA_DEFAULT_WINE_SERVER_RT_PRIO, int),
+        }
+
+    # -----------------------------------------------------------------------------------------------------------------
     # main settings
 
     setHostSettings(host)
 
-    # --------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
     # file paths
 
-    FILE_PATH_AUDIO = settings.value(CARLA_KEY_PATHS_AUDIO, CARLA_DEFAULT_FILE_PATH_AUDIO, list)
-    FILE_PATH_MIDI  = settings.value(CARLA_KEY_PATHS_MIDI,  CARLA_DEFAULT_FILE_PATH_MIDI, list)
+    host.set_engine_option(ENGINE_OPTION_FILE_PATH, FILE_AUDIO, settings[CARLA_KEY_PATHS_AUDIO])
+    host.set_engine_option(ENGINE_OPTION_FILE_PATH, FILE_MIDI, settings[CARLA_KEY_PATHS_MIDI])
 
-    host.set_engine_option(ENGINE_OPTION_FILE_PATH, FILE_AUDIO, splitter.join(FILE_PATH_AUDIO))
-    host.set_engine_option(ENGINE_OPTION_FILE_PATH, FILE_MIDI,  splitter.join(FILE_PATH_MIDI))
-
-    # --------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
     # plugin paths
 
-    LADSPA_PATH = settings.value(CARLA_KEY_PATHS_LADSPA, CARLA_DEFAULT_LADSPA_PATH, list)
-    DSSI_PATH   = settings.value(CARLA_KEY_PATHS_DSSI,   CARLA_DEFAULT_DSSI_PATH, list)
-    LV2_PATH    = settings.value(CARLA_KEY_PATHS_LV2,    CARLA_DEFAULT_LV2_PATH, list)
-    VST2_PATH   = settings.value(CARLA_KEY_PATHS_VST2,   CARLA_DEFAULT_VST2_PATH, list)
-    VST3_PATH   = settings.value(CARLA_KEY_PATHS_VST3,   CARLA_DEFAULT_VST3_PATH, list)
-    SF2_PATH    = settings.value(CARLA_KEY_PATHS_SF2,    CARLA_DEFAULT_SF2_PATH, list)
-    SFZ_PATH    = settings.value(CARLA_KEY_PATHS_SFZ,    CARLA_DEFAULT_SFZ_PATH, list)
+    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_LADSPA, settings[CARLA_KEY_PATHS_LADSPA])
+    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_DSSI, settings[CARLA_KEY_PATHS_DSSI])
+    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_LV2, settings[CARLA_KEY_PATHS_LV2])
+    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_VST2, settings[CARLA_KEY_PATHS_VST2])
+    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_VST3, settings[CARLA_KEY_PATHS_VST3])
+    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_SF2, settings[CARLA_KEY_PATHS_SF2])
+    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_SFZ, settings[CARLA_KEY_PATHS_SFZ])
+    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_JSFX, settings[CARLA_KEY_PATHS_JSFX])
+    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_CLAP, settings[CARLA_KEY_PATHS_CLAP])
 
-    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_LADSPA, splitter.join(LADSPA_PATH))
-    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_DSSI,   splitter.join(DSSI_PATH))
-    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_LV2,    splitter.join(LV2_PATH))
-    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_VST2,   splitter.join(VST2_PATH))
-    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_VST3,   splitter.join(VST3_PATH))
-    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_SF2,    splitter.join(SF2_PATH))
-    host.set_engine_option(ENGINE_OPTION_PLUGIN_PATH, PLUGIN_SFZ,    splitter.join(SFZ_PATH))
-
-    # --------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
     # don't continue if plugin
 
     if host.isPlugin:
         return "Plugin"
 
-    # --------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
     # osc settings
 
     if oscPort is not None and isinstance(oscPort, int):
@@ -3389,84 +3600,65 @@ def setEngineSettings(host, oscPort = None):
         portNumTCP = portNumUDP = oscPort
 
     else:
-        oscEnabled = settings.value(CARLA_KEY_OSC_ENABLED, CARLA_DEFAULT_OSC_ENABLED, bool)
+        oscEnabled = settings[CARLA_KEY_OSC_ENABLED]
 
-        if not settings.value(CARLA_KEY_OSC_TCP_PORT_ENABLED, CARLA_DEFAULT_OSC_TCP_PORT_ENABLED, bool):
+        if not settings[CARLA_KEY_OSC_TCP_PORT_ENABLED]:
             portNumTCP = -1
-        elif settings.value(CARLA_KEY_OSC_TCP_PORT_RANDOM, CARLA_DEFAULT_OSC_TCP_PORT_RANDOM, bool):
+        elif settings[CARLA_KEY_OSC_TCP_PORT_RANDOM]:
             portNumTCP = 0
         else:
-            portNumTCP = settings.value(CARLA_KEY_OSC_TCP_PORT_NUMBER, CARLA_DEFAULT_OSC_TCP_PORT_NUMBER, int)
+            portNumTCP = settings[CARLA_KEY_OSC_TCP_PORT_NUMBER]
 
-        if not settings.value(CARLA_KEY_OSC_UDP_PORT_ENABLED, CARLA_DEFAULT_OSC_UDP_PORT_ENABLED, bool):
+        if not settings[CARLA_KEY_OSC_UDP_PORT_ENABLED]:
             portNumUDP = -1
-        elif settings.value(CARLA_KEY_OSC_UDP_PORT_RANDOM, CARLA_DEFAULT_OSC_UDP_PORT_RANDOM, bool):
+        elif settings[CARLA_KEY_OSC_UDP_PORT_RANDOM]:
             portNumUDP = 0
         else:
-            portNumUDP = settings.value(CARLA_KEY_OSC_UDP_PORT_NUMBER, CARLA_DEFAULT_OSC_UDP_PORT_NUMBER, int)
+            portNumUDP = settings[CARLA_KEY_OSC_UDP_PORT_NUMBER]
 
     host.set_engine_option(ENGINE_OPTION_OSC_ENABLED, 1 if oscEnabled else 0, "")
     host.set_engine_option(ENGINE_OPTION_OSC_PORT_TCP, portNumTCP, "")
     host.set_engine_option(ENGINE_OPTION_OSC_PORT_UDP, portNumUDP, "")
 
-    # --------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
     # wine settings
 
-    optWineExecutable = settings.value(CARLA_KEY_WINE_EXECUTABLE, CARLA_DEFAULT_WINE_EXECUTABLE, str)
-    optWineAutoPrefix = settings.value(CARLA_KEY_WINE_AUTO_PREFIX, CARLA_DEFAULT_WINE_AUTO_PREFIX, bool)
-    optWineFallbackPrefix = settings.value(CARLA_KEY_WINE_FALLBACK_PREFIX, CARLA_DEFAULT_WINE_FALLBACK_PREFIX, str)
-    optWineRtPrioEnabled = settings.value(CARLA_KEY_WINE_RT_PRIO_ENABLED, CARLA_DEFAULT_WINE_RT_PRIO_ENABLED, bool)
-    optWineBaseRtPrio = settings.value(CARLA_KEY_WINE_BASE_RT_PRIO,   CARLA_DEFAULT_WINE_BASE_RT_PRIO, int)
-    optWineServerRtPrio = settings.value(CARLA_KEY_WINE_SERVER_RT_PRIO, CARLA_DEFAULT_WINE_SERVER_RT_PRIO, int)
+    host.set_engine_option(ENGINE_OPTION_WINE_EXECUTABLE, 0, settings[CARLA_KEY_WINE_EXECUTABLE])
+    host.set_engine_option(ENGINE_OPTION_WINE_AUTO_PREFIX, 1 if settings[CARLA_KEY_WINE_AUTO_PREFIX] else 0, "")
+    host.set_engine_option(ENGINE_OPTION_WINE_FALLBACK_PREFIX, 0, os.path.expanduser(settings[CARLA_KEY_WINE_FALLBACK_PREFIX]))
+    host.set_engine_option(ENGINE_OPTION_WINE_RT_PRIO_ENABLED, 1 if settings[CARLA_KEY_WINE_RT_PRIO_ENABLED] else 0, "")
+    host.set_engine_option(ENGINE_OPTION_WINE_BASE_RT_PRIO, settings[CARLA_KEY_WINE_BASE_RT_PRIO], "")
+    host.set_engine_option(ENGINE_OPTION_WINE_SERVER_RT_PRIO, settings[CARLA_KEY_WINE_SERVER_RT_PRIO], "")
 
-    host.set_engine_option(ENGINE_OPTION_WINE_EXECUTABLE, 0, optWineExecutable)
-    host.set_engine_option(ENGINE_OPTION_WINE_AUTO_PREFIX, 1 if optWineAutoPrefix else 0, "")
-    host.set_engine_option(ENGINE_OPTION_WINE_FALLBACK_PREFIX, 0, os.path.expanduser(optWineFallbackPrefix))
-    host.set_engine_option(ENGINE_OPTION_WINE_RT_PRIO_ENABLED, 1 if optWineRtPrioEnabled else 0, "")
-    host.set_engine_option(ENGINE_OPTION_WINE_BASE_RT_PRIO, optWineBaseRtPrio, "")
-    host.set_engine_option(ENGINE_OPTION_WINE_SERVER_RT_PRIO, optWineServerRtPrio, "")
-
-    # --------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
     # driver and device settings
 
     # driver name
-    if host.audioDriverForced is not None:
-        audioDriver = host.audioDriverForced
-    else:
-        try:
-            audioDriver = settings.value(CARLA_KEY_ENGINE_AUDIO_DRIVER, CARLA_DEFAULT_AUDIO_DRIVER, str)
-        except:
-            audioDriver = CARLA_DEFAULT_AUDIO_DRIVER
-
-    # driver options
-    audioDevice = settings.value("%s%s/Device" % (CARLA_KEY_ENGINE_DRIVER_PREFIX, audioDriver), "", str)
-    audioBufferSize = settings.value("%s%s/BufferSize" % (CARLA_KEY_ENGINE_DRIVER_PREFIX, audioDriver), CARLA_DEFAULT_AUDIO_BUFFER_SIZE, int)
-    audioSampleRate = settings.value("%s%s/SampleRate" % (CARLA_KEY_ENGINE_DRIVER_PREFIX, audioDriver), CARLA_DEFAULT_AUDIO_SAMPLE_RATE, int)
-    audioTripleBuffer = settings.value("%s%s/TripleBuffer" % (CARLA_KEY_ENGINE_DRIVER_PREFIX, audioDriver), CARLA_DEFAULT_AUDIO_TRIPLE_BUFFER, bool)
+    audioDriver = settings[CARLA_KEY_ENGINE_AUDIO_DRIVER]
 
     # Only setup audio things if engine is not running
     if not host.is_engine_running():
         host.set_engine_option(ENGINE_OPTION_AUDIO_DRIVER, 0, audioDriver)
-        host.set_engine_option(ENGINE_OPTION_AUDIO_DEVICE, 0, audioDevice)
+        host.set_engine_option(ENGINE_OPTION_AUDIO_DEVICE, 0, settings[CARLA_KEY_ENGINE_AUDIO_DEVICE])
 
         if not audioDriver.startswith("JACK"):
-            host.set_engine_option(ENGINE_OPTION_AUDIO_BUFFER_SIZE, audioBufferSize, "")
-            host.set_engine_option(ENGINE_OPTION_AUDIO_SAMPLE_RATE, audioSampleRate, "")
-            host.set_engine_option(ENGINE_OPTION_AUDIO_TRIPLE_BUFFER, 1 if audioTripleBuffer else 0, "")
+            host.set_engine_option(ENGINE_OPTION_AUDIO_BUFFER_SIZE, settings[CARLA_KEY_ENGINE_BUFFER_SIZE], "")
+            host.set_engine_option(ENGINE_OPTION_AUDIO_SAMPLE_RATE, settings[CARLA_KEY_ENGINE_SAMPLE_RATE], "")
+            host.set_engine_option(ENGINE_OPTION_AUDIO_TRIPLE_BUFFER, 1 if settings[CARLA_KEY_ENGINE_TRIPLE_BUFFER] else 0, "")
 
-    # --------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
     # fix things if needed
 
     if audioDriver != "JACK" and host.transportMode == ENGINE_TRANSPORT_MODE_JACK:
         host.transportMode = ENGINE_TRANSPORT_MODE_INTERNAL
         host.set_engine_option(ENGINE_OPTION_TRANSPORT_MODE, ENGINE_TRANSPORT_MODE_INTERNAL, host.transportExtra)
 
-    # --------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
     # return selected driver name
 
     return audioDriver
 
-# ------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------
 # Run Carla without showing UI
 
 def runHostWithoutUI(host):
@@ -3481,7 +3673,7 @@ def runHostWithoutUI(host):
 
     projectFile = getInitialProjectFile(True)
 
-    if not isinstance(gCarla.nogui, int):
+    if gCarla.nogui is True:
         oscPort = None
 
         if not projectFile:
@@ -3499,8 +3691,8 @@ def runHostWithoutUI(host):
     # --------------------------------------------------------------------------------------------------------
     # Init engine
 
-    audioDriver = setEngineSettings(host, oscPort)
-    if not host.engine_init(audioDriver, "Carla"):
+    audioDriver = setEngineSettings(host, None, oscPort)
+    if not host.engine_init(audioDriver, CARLA_CLIENT_NAME or "Carla"):
         print("Engine failed to initialize, possible reasons:\n%s" % host.get_last_error())
         sys.exit(1)
 

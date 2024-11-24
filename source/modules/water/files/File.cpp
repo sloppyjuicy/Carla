@@ -3,7 +3,7 @@
 
    This file is part of the Water library.
    Copyright (c) 2016 ROLI Ltd.
-   Copyright (C) 2017-2018 Filipe Coelho <falktx@falktx.com>
+   Copyright (C) 2017-2024 Filipe Coelho <falktx@falktx.com>
 
    Permission is granted to use this software under the terms of the ISC license
    http://www.isc.org/downloads/software-support-policy/isc-license/
@@ -57,8 +57,8 @@ File::File () noexcept
 {
 }
 
-File::File (const String& fullPathName)
-    : fullPath (parseAbsolutePath (fullPathName))
+File::File (const char* const absolutePath)
+    : fullPath (parseAbsolutePath (absolutePath))
 {
 }
 
@@ -74,9 +74,9 @@ File::File (const File& other)
 {
 }
 
-File& File::operator= (const String& newPath)
+File& File::operator= (const char* const newAbsolutePath)
 {
-    fullPath = parseAbsolutePath (newPath);
+    fullPath = parseAbsolutePath (newAbsolutePath);
     return *this;
 }
 
@@ -85,19 +85,6 @@ File& File::operator= (const File& other)
     fullPath = other.fullPath;
     return *this;
 }
-
-#if WATER_COMPILER_SUPPORTS_MOVE_SEMANTICS
-File::File (File&& other) noexcept
-    : fullPath (static_cast<String&&> (other.fullPath))
-{
-}
-
-File& File::operator= (File&& other) noexcept
-{
-    fullPath = static_cast<String&&> (other.fullPath);
-    return *this;
-}
-#endif
 
 bool File::isNull() const
 {
@@ -121,7 +108,7 @@ static String removeEllipsis (const String& path)
    #endif
     {
         StringArray toks;
-        toks.addTokens (path, File::separatorString, StringRef());
+        toks.addTokens (path, CARLA_OS_SEP_STR, StringRef());
         bool anythingChanged = false;
 
         for (int i = 1; i < toks.size(); ++i)
@@ -142,7 +129,7 @@ static String removeEllipsis (const String& path)
         }
 
         if (anythingChanged)
-            return toks.joinIntoString (File::separatorString);
+            return toks.joinIntoString (CARLA_OS_SEP_STR);
     }
 
     return path;
@@ -157,14 +144,14 @@ String File::parseAbsolutePath (const String& p)
     // Windows..
     String path (removeEllipsis (p.replaceCharacter ('/', '\\')));
 
-    if (path.startsWithChar (separator))
+    if (path.startsWithChar (CARLA_OS_SEP))
     {
-        if (path[1] != separator)
+        if (path[1] != CARLA_OS_SEP)
         {
             // Check if path is valid under Wine
             String testpath ("Z:" + path);
 
-            if (File(testpath).exists())
+            if (File(testpath.toRawUTF8()).exists())
             {
                 path = testpath;
             }
@@ -194,7 +181,7 @@ String File::parseAbsolutePath (const String& p)
         */
         carla_safe_assert(path.toRawUTF8(), __FILE__, __LINE__);
 
-        return File::getCurrentWorkingDirectory().getChildFile (path).getFullPathName();
+        return File::getCurrentWorkingDirectory().getChildFile (path.toRawUTF8()).getFullPathName();
     }
 #else
     // Mac or Linux..
@@ -208,7 +195,7 @@ String File::parseAbsolutePath (const String& p)
 
     if (path.startsWithChar ('~'))
     {
-        if (path[1] == separator || path[1] == 0)
+        if (path[1] == CARLA_OS_SEP || path[1] == 0)
         {
             // expand a name of the form "~/abc"
             path = File::getSpecialLocation (File::userHomeDirectory).getFullPathName()
@@ -223,13 +210,13 @@ String File::parseAbsolutePath (const String& p)
                 path = addTrailingSeparator (pw->pw_dir) + path.fromFirstOccurrenceOf ("/", false, false);
         }
     }
-    else if (! path.startsWithChar (separator))
+    else if (! path.startsWithChar (CARLA_OS_SEP))
     {
-        return File::getCurrentWorkingDirectory().getChildFile (path).getFullPathName();
+        return File::getCurrentWorkingDirectory().getChildFile (path.toRawUTF8()).getFullPathName();
     }
 #endif
 
-    while (path.endsWithChar (separator) && path != separatorString) // careful not to turn a single "/" into an empty string.
+    while (path.endsWithChar (CARLA_OS_SEP) && path != CARLA_OS_SEP_STR) // careful not to turn a single "/" into an empty string.
         path = path.dropLastCharacters (1);
 
     return path;
@@ -237,8 +224,8 @@ String File::parseAbsolutePath (const String& p)
 
 String File::addTrailingSeparator (const String& path)
 {
-    return path.endsWithChar (separator) ? path
-                                         : path + separator;
+    return path.endsWithChar (CARLA_OS_SEP) ? path
+                                            : path + CARLA_OS_SEP;
 }
 
 //==============================================================================
@@ -276,11 +263,11 @@ bool File::deleteRecursively() const
 
     if (isDirectory())
     {
-        Array<File> subFiles;
+        std::vector<File> subFiles;
         findChildFiles (subFiles, File::findFilesAndDirectories, false);
 
-        for (int i = subFiles.size(); --i >= 0;)
-            worked = subFiles.getReference(i).deleteRecursively() && worked;
+        for (ssize_t i = subFiles.size(); --i >= 0;)
+            worked = subFiles[i].deleteRecursively() && worked;
     }
 
     return deleteFile() && worked;
@@ -328,13 +315,13 @@ bool File::copyDirectoryTo (const File& newDirectory) const
 {
     if (isDirectory() && newDirectory.createDirectory())
     {
-        Array<File> subFiles;
+        std::vector<File> subFiles;
         findChildFiles (subFiles, File::findFiles, false);
 
-        for (int i = 0; i < subFiles.size(); ++i)
+        for (size_t i = 0; i < subFiles.size(); ++i)
         {
-            const File& src (subFiles.getReference(i));
-            const File& dst (newDirectory.getChildFile (src.getFileName()));
+            const File& src (subFiles[i]);
+            const File& dst (newDirectory.getChildFile (src.getFileName().toRawUTF8()));
 
             if (src.isSymbolicLink())
             {
@@ -351,8 +338,8 @@ bool File::copyDirectoryTo (const File& newDirectory) const
         subFiles.clear();
         findChildFiles (subFiles, File::findDirectories, false);
 
-        for (int i = 0; i < subFiles.size(); ++i)
-            if (! subFiles.getReference(i).copyDirectoryTo (newDirectory.getChildFile (subFiles.getReference(i).getFileName())))
+        for (size_t i = 0; i < subFiles.size(); ++i)
+            if (! subFiles[i].copyDirectoryTo (newDirectory.getChildFile (subFiles[i].getFileName().toRawUTF8())))
                 return false;
 
         return true;
@@ -364,13 +351,13 @@ bool File::copyDirectoryTo (const File& newDirectory) const
 //==============================================================================
 String File::getPathUpToLastSlash() const
 {
-    const int lastSlash = fullPath.lastIndexOfChar (separator);
+    const int lastSlash = fullPath.lastIndexOfChar (CARLA_OS_SEP);
 
     if (lastSlash > 0)
         return fullPath.substring (0, lastSlash);
 
     if (lastSlash == 0)
-        return separatorString;
+        return CARLA_OS_SEP_STR;
 
     return fullPath;
 }
@@ -385,12 +372,12 @@ File File::getParentDirectory() const
 //==============================================================================
 String File::getFileName() const
 {
-    return fullPath.substring (fullPath.lastIndexOfChar (separator) + 1);
+    return fullPath.substring (fullPath.lastIndexOfChar (CARLA_OS_SEP) + 1);
 }
 
 String File::getFileNameWithoutExtension() const
 {
-    const int lastSlash = fullPath.lastIndexOfChar (separator) + 1;
+    const int lastSlash = fullPath.lastIndexOfChar (CARLA_OS_SEP) + 1;
     const int lastDot   = fullPath.lastIndexOfChar ('.');
 
     if (lastDot > lastSlash)
@@ -416,48 +403,48 @@ bool File::isAChildOf (const File& potentialParent) const
 }
 
 //==============================================================================
-bool File::isAbsolutePath (StringRef path)
+bool File::isAbsolutePath (const char* const path)
 {
-    const water_uchar firstChar = *(path.text);
+    const char firstChar = *path;
 
-    return firstChar == separator
+    return firstChar == CARLA_OS_SEP
            #ifdef CARLA_OS_WIN
-            || (firstChar != 0 && path.text[1] == ':');
+            || (firstChar != '\0' && path[1] == ':');
            #else
             || firstChar == '~';
            #endif
 }
 
-File File::getChildFile (StringRef relativePath) const
+File File::getChildFile (const char* const relativePath) const
 {
-    String::CharPointerType r = relativePath.text;
+    if (isAbsolutePath (relativePath))
+        return File (relativePath);
 
-    if (isAbsolutePath (r))
-        return File (String (r));
+    CharPointer_UTF8 r(relativePath);
 
    #ifdef CARLA_OS_WIN
     if (r.indexOf ((water_uchar) '/') >= 0)
-        return getChildFile (String (r).replaceCharacter ('/', '\\'));
+        return getChildFile (String (r).replaceCharacter ('/', '\\').toRawUTF8());
    #endif
 
     String path (fullPath);
 
     while (*r == '.')
     {
-        String::CharPointerType lastPos = r;
+        CharPointer_UTF8 lastPos = r;
         const water_uchar secondChar = *++r;
 
         if (secondChar == '.') // remove "../"
         {
             const water_uchar thirdChar = *++r;
 
-            if (thirdChar == separator || thirdChar == 0)
+            if (thirdChar == CARLA_OS_SEP || thirdChar == 0)
             {
-                const int lastSlash = path.lastIndexOfChar (separator);
+                const int lastSlash = path.lastIndexOfChar (CARLA_OS_SEP);
                 if (lastSlash >= 0)
                     path = path.substring (0, lastSlash);
 
-                while (*r == separator) // ignore duplicate slashes
+                while (*r == CARLA_OS_SEP) // ignore duplicate slashes
                     ++r;
             }
             else
@@ -466,9 +453,9 @@ File File::getChildFile (StringRef relativePath) const
                 break;
             }
         }
-        else if (secondChar == separator || secondChar == 0)  // remove "./"
+        else if (secondChar == CARLA_OS_SEP || secondChar == 0)  // remove "./"
         {
-            while (*r == separator) // ignore duplicate slashes
+            while (*r == CARLA_OS_SEP) // ignore duplicate slashes
                 ++r;
         }
         else
@@ -480,27 +467,12 @@ File File::getChildFile (StringRef relativePath) const
 
     path = addTrailingSeparator (path);
     path.appendCharPointer (r);
-    return File (path);
+    return File (path.toRawUTF8());
 }
 
-File File::getSiblingFile (StringRef fileName) const
+File File::getSiblingFile (const char* const fileName) const
 {
     return getParentDirectory().getChildFile (fileName);
-}
-
-//==============================================================================
-String File::descriptionOfSizeInBytes (const int64 bytes)
-{
-    const char* suffix;
-    double divisor = 0;
-
-    if (bytes == 1)                       { suffix = " byte"; }
-    else if (bytes < 1024)                { suffix = " bytes"; }
-    else if (bytes < 1024 * 1024)         { suffix = " KB"; divisor = 1024.0; }
-    else if (bytes < 1024 * 1024 * 1024)  { suffix = " MB"; divisor = 1024.0 * 1024.0; }
-    else                                  { suffix = " GB"; divisor = 1024.0 * 1024.0 * 1024.0; }
-
-    return (divisor > 0 ? String (bytes / divisor, 1) : String (bytes)) + suffix;
 }
 
 //==============================================================================
@@ -538,9 +510,31 @@ Result File::createDirectory() const
     Result r (parentDir.createDirectory());
 
     if (r.wasOk())
-        r = createDirectoryInternal (fullPath.trimCharactersAtEnd (separatorString));
+        r = createDirectoryInternal (fullPath.trimCharactersAtEnd (CARLA_OS_SEP_STR));
 
     return r;
+}
+
+//==============================================================================
+int64 File::getLastModificationTime() const
+{
+    int64 m, _;
+    getFileTimesInternal (m, _, _);
+    return m;
+}
+
+int64 File::getLastAccessTime() const
+{
+    int64 a, _;
+    getFileTimesInternal (_, a, _);
+    return a;
+}
+
+int64 File::getCreationTime() const
+{
+    int64 c, _;
+    getFileTimesInternal (_, _, c);
+    return c;
 }
 
 //==============================================================================
@@ -563,31 +557,26 @@ String File::loadFileAsString() const
                          : String();
 }
 
-void File::readLines (StringArray& destLines) const
-{
-    destLines.addLines (loadFileAsString());
-}
-
 //==============================================================================
-int File::findChildFiles (Array<File>& results,
-                          const int whatToLookFor,
-                          const bool searchRecursively,
-                          const String& wildCardPattern) const
+uint File::findChildFiles (std::vector<File>& results,
+                           const int whatToLookFor,
+                           const bool searchRecursively,
+                           const char* const wildCardPattern) const
 {
-    int total = 0;
+    uint total = 0;
 
     for (DirectoryIterator di (*this, searchRecursively, wildCardPattern, whatToLookFor); di.next();)
     {
-        results.add (di.getFile());
+        results.push_back (di.getFile());
         ++total;
     }
 
     return total;
 }
 
-int File::getNumberOfChildFiles (const int whatToLookFor, const String& wildCardPattern) const
+uint File::getNumberOfChildFiles (const int whatToLookFor, const char* const wildCardPattern) const
 {
-    int total = 0;
+    uint total = 0;
 
     for (DirectoryIterator di (*this, false, wildCardPattern, whatToLookFor); di.next();)
         ++total;
@@ -609,7 +598,7 @@ File File::getNonexistentChildFile (const String& suggestedPrefix,
                                     const String& suffix,
                                     bool putNumbersInBrackets) const
 {
-    File f (getChildFile (suggestedPrefix + suffix));
+    File f (getChildFile (String(suggestedPrefix + suffix).toRawUTF8()));
 
     if (f.exists())
     {
@@ -649,7 +638,7 @@ File File::getNonexistentChildFile (const String& suggestedPrefix,
                 newName << ++number;
             }
 
-            f = getChildFile (newName + suffix);
+            f = getChildFile (String(newName + suffix).toRawUTF8());
 
         } while (f.exists());
     }
@@ -672,26 +661,28 @@ String File::getFileExtension() const
 {
     const int indexOfDot = fullPath.lastIndexOfChar ('.');
 
-    if (indexOfDot > fullPath.lastIndexOfChar (separator))
+    if (indexOfDot > fullPath.lastIndexOfChar (CARLA_OS_SEP))
         return fullPath.substring (indexOfDot);
 
     return String();
 }
 
-bool File::hasFileExtension (StringRef possibleSuffix) const
+bool File::hasFileExtension (const char* const possibleSuffix_) const
 {
-    if (possibleSuffix.isEmpty())
-        return fullPath.lastIndexOfChar ('.') <= fullPath.lastIndexOfChar (separator);
+    const CharPointer_UTF8 possibleSuffix(possibleSuffix_);
 
-    const int semicolon = possibleSuffix.text.indexOf ((water_uchar) ';');
+    if (possibleSuffix.isEmpty())
+        return fullPath.lastIndexOfChar ('.') <= fullPath.lastIndexOfChar (CARLA_OS_SEP);
+
+    const int semicolon = possibleSuffix.indexOf ((water_uchar) ';');
 
     if (semicolon >= 0)
-        return hasFileExtension (String (possibleSuffix.text).substring (0, semicolon).trimEnd())
-                || hasFileExtension ((possibleSuffix.text + (semicolon + 1)).findEndOfWhitespace());
+        return hasFileExtension (String (possibleSuffix).substring (0, semicolon).trimEnd().toRawUTF8())
+                || hasFileExtension ((possibleSuffix + (semicolon + 1)).findEndOfWhitespace());
 
     if (fullPath.endsWithIgnoreCase (possibleSuffix))
     {
-        if (possibleSuffix.text[0] == '.')
+        if (possibleSuffix[0] == '.')
             return true;
 
         const int dotPos = fullPath.length() - possibleSuffix.length() - 1;
@@ -703,21 +694,21 @@ bool File::hasFileExtension (StringRef possibleSuffix) const
     return false;
 }
 
-File File::withFileExtension (StringRef newExtension) const
+File File::withFileExtension (const char* const newExtension) const
 {
     if (fullPath.isEmpty())
         return File();
 
-    String filePart (getFileName());
+    String filePart (getFileName().toRawUTF8());
 
     const int i = filePart.lastIndexOfChar ('.');
     if (i >= 0)
         filePart = filePart.substring (0, i);
 
-    if (newExtension.isNotEmpty() && newExtension.text[0] != '.')
+    if (newExtension[0] != '\0' && newExtension[0] != '.')
         filePart << '.';
 
-    return getSiblingFile (filePart + newExtension);
+    return getSiblingFile (String(filePart + newExtension).toRawUTF8());
 }
 
 //==============================================================================
@@ -862,7 +853,7 @@ String File::createLegalFileName (const String& original)
 }
 
 //==============================================================================
-static int countNumberOfSeparators (String::CharPointerType s)
+static int countNumberOfSeparators (CharPointer_UTF8 s)
 {
     int num = 0;
 
@@ -873,7 +864,7 @@ static int countNumberOfSeparators (String::CharPointerType s)
         if (c == 0)
             break;
 
-        if (c == File::separator)
+        if (c == CARLA_OS_SEP)
             ++num;
     }
 
@@ -884,19 +875,19 @@ String File::getRelativePathFrom (const File& dir)  const
 {
     String thisPath (fullPath);
 
-    while (thisPath.endsWithChar (separator))
+    while (thisPath.endsWithChar (CARLA_OS_SEP))
         thisPath = thisPath.dropLastCharacters (1);
 
     String dirPath (addTrailingSeparator (dir.existsAsFile() ? dir.getParentDirectory().getFullPathName()
                                                              : dir.fullPath));
 
     int commonBitLength = 0;
-    String::CharPointerType thisPathAfterCommon (thisPath.getCharPointer());
-    String::CharPointerType dirPathAfterCommon  (dirPath.getCharPointer());
+    CharPointer_UTF8 thisPathAfterCommon (thisPath.getCharPointer());
+    CharPointer_UTF8 dirPathAfterCommon  (dirPath.getCharPointer());
 
     {
-        String::CharPointerType thisPathIter (thisPath.getCharPointer());
-        String::CharPointerType dirPathIter  (dirPath.getCharPointer());
+        CharPointer_UTF8 thisPathIter (thisPath.getCharPointer());
+        CharPointer_UTF8 dirPathIter  (dirPath.getCharPointer());
 
         for (int i = 0;;)
         {
@@ -913,7 +904,7 @@ String File::getRelativePathFrom (const File& dir)  const
 
             ++i;
 
-            if (c1 == separator)
+            if (c1 == CARLA_OS_SEP)
             {
                 thisPathAfterCommon = thisPathIter;
                 dirPathAfterCommon  = dirPathIter;
@@ -923,7 +914,7 @@ String File::getRelativePathFrom (const File& dir)  const
     }
 
     // if the only common bit is the root, then just return the full path..
-    if (commonBitLength == 0 || (commonBitLength == 1 && thisPath[1] == separator))
+    if (commonBitLength == 0 || (commonBitLength == 1 && thisPath[1] == CARLA_OS_SEP))
         return fullPath;
 
     const int numUpDirectoriesNeeded = countNumberOfSeparators (dirPathAfterCommon);
@@ -941,10 +932,10 @@ String File::getRelativePathFrom (const File& dir)  const
 }
 
 //==============================================================================
-File File::createTempFile (StringRef fileNameEnding)
+File File::createTempFile (const char* const fileNameEnding)
 {
     const File tempFile (getSpecialLocation (tempDirectory)
-                            .getChildFile ("temp_" + String::toHexString (Random::getSystemRandom().nextInt()))
+                            .getChildFile (String("temp_" + String::toHexString (Random::getSystemRandom().nextInt())).toRawUTF8())
                             .withFileExtension (fileNameEnding));
 
     if (tempFile.exists())
@@ -966,13 +957,8 @@ bool File::createSymbolicLink (const File& linkFileToCreate, bool overwriteExist
     }
 
    #ifdef CARLA_OS_WIN
-    typedef BOOLEAN (WINAPI* PFUNC)(LPCTSTR, LPCTSTR, DWORD);
-
-    const PFUNC pfn = (PFUNC)GetProcAddress(GetModuleHandle(TEXT("kernel32.dll")), "CreateSymbolicLinkA");
-    CARLA_SAFE_ASSERT_RETURN(pfn != nullptr, false);
-
-    return pfn(linkFileToCreate.getFullPathName().toRawUTF8(), fullPath.toRawUTF8(),
-               isDirectory() ? 0x1 /*SYMBOLIC_LINK_FLAG_DIRECTORY*/ : 0x0) != FALSE;
+    carla_stderr("File::createSymbolicLink failed, unsupported");
+    return false;
    #else
     // one common reason for getting an error here is that the file already exists
     return symlink(fullPath.toRawUTF8(), linkFileToCreate.getFullPathName().toRawUTF8()) != -1;
@@ -985,7 +971,7 @@ namespace WindowsFileHelpers
 {
     DWORD getAtts (const String& path)
     {
-        return GetFileAttributes (path.toUTF8());
+        return GetFileAttributesW (path.toUTF16().c_str());
     }
 
     int64 fileTimeToTime (const FILETIME* const ft)
@@ -999,25 +985,32 @@ namespace WindowsFileHelpers
 
     File getSpecialFolderPath (int type)
     {
-        CHAR path [MAX_PATH + 256];
+        WCHAR wpath [MAX_PATH + 256];
 
-        if (SHGetSpecialFolderPath (0, path, type, FALSE))
-            return File (String (path));
+        if (SHGetSpecialFolderPathW (nullptr, wpath, type, FALSE))
+        {
+            CHAR apath [MAX_PATH + 256];
+
+            if (WideCharToMultiByte (CP_UTF8, 0, wpath, -1, apath, numElementsInArray (apath), nullptr, nullptr))
+                return File (apath);
+        }
 
         return File();
     }
 
     File getModuleFileName (HINSTANCE moduleHandle)
     {
-        CHAR dest [MAX_PATH + 256];
-        dest[0] = 0;
-        GetModuleFileName (moduleHandle, dest, (DWORD) numElementsInArray (dest));
-        return File (String (dest));
+        WCHAR wdest [MAX_PATH + 256];
+        CHAR adest [MAX_PATH + 256];
+        wdest[0] = 0;
+        GetModuleFileNameW (moduleHandle, wdest, (DWORD) numElementsInArray (wdest));
+
+        if (WideCharToMultiByte (CP_UTF8, 0, wdest, -1, adest, numElementsInArray (adest), nullptr, nullptr))
+            return File (adest);
+
+        return File();
     }
 }
-
-const water_uchar File::separator = '\\';
-const String File::separatorString ("\\");
 
 bool File::isDirectory() const
 {
@@ -1056,10 +1049,27 @@ int64 File::getSize() const
 {
     WIN32_FILE_ATTRIBUTE_DATA attributes;
 
-    if (GetFileAttributesEx (fullPath.toUTF8(), GetFileExInfoStandard, &attributes))
+    if (GetFileAttributesExW (fullPath.toUTF16().c_str(), GetFileExInfoStandard, &attributes))
         return (((int64) attributes.nFileSizeHigh) << 32) | attributes.nFileSizeLow;
 
     return 0;
+}
+
+void File::getFileTimesInternal (int64& modificationTime, int64& accessTime, int64& creationTime) const
+{
+    using namespace WindowsFileHelpers;
+    WIN32_FILE_ATTRIBUTE_DATA attributes;
+
+    if (GetFileAttributesExW (fullPath.toUTF16().c_str(), GetFileExInfoStandard, &attributes))
+    {
+        modificationTime = fileTimeToTime (&attributes.ftLastWriteTime);
+        creationTime     = fileTimeToTime (&attributes.ftCreationTime);
+        accessTime       = fileTimeToTime (&attributes.ftLastAccessTime);
+    }
+    else
+    {
+        creationTime = accessTime = modificationTime = 0;
+    }
 }
 
 bool File::deleteFile() const
@@ -1067,8 +1077,8 @@ bool File::deleteFile() const
     if (! exists())
         return true;
 
-    return isDirectory() ? RemoveDirectory (fullPath.toUTF8()) != 0
-                         : DeleteFile (fullPath.toUTF8()) != 0;
+    return isDirectory() ? RemoveDirectoryW (fullPath.toUTF16().c_str()) != 0
+                         : DeleteFileW (fullPath.toUTF16().c_str()) != 0;
 }
 
 File File::getLinkedTarget() const
@@ -1078,12 +1088,12 @@ File File::getLinkedTarget() const
 
 bool File::copyInternal (const File& dest) const
 {
-    return CopyFile (fullPath.toUTF8(), dest.getFullPathName().toUTF8(), false) != 0;
+    return CopyFileW (fullPath.toUTF16().c_str(), dest.getFullPathName().toUTF16().c_str(), false) != 0;
 }
 
 bool File::moveInternal (const File& dest) const
 {
-    return MoveFile (fullPath.toUTF8(), dest.getFullPathName().toUTF8()) != 0;
+    return MoveFileW (fullPath.toUTF16().c_str(), dest.getFullPathName().toUTF16().c_str()) != 0;
 }
 
 bool File::replaceInternal (const File& dest) const
@@ -1091,32 +1101,38 @@ bool File::replaceInternal (const File& dest) const
     void* lpExclude = 0;
     void* lpReserved = 0;
 
-    return ReplaceFile (dest.getFullPathName().toUTF8(), fullPath.toUTF8(),
-                        0, REPLACEFILE_IGNORE_MERGE_ERRORS, lpExclude, lpReserved) != 0;
+    return ReplaceFileW (dest.getFullPathName().toUTF16().c_str(),
+                         fullPath.toUTF16().c_str(),
+                         0, REPLACEFILE_IGNORE_MERGE_ERRORS, lpExclude, lpReserved) != 0;
 }
 
 Result File::createDirectoryInternal (const String& fileName) const
 {
-    return CreateDirectory (fileName.toUTF8(), 0) ? Result::ok()
-                                                  : getResultForLastError();
+    return CreateDirectoryW (fileName.toUTF16().c_str(), 0) ? Result::ok()
+                                                            : getResultForLastError();
 }
 
 File File::getCurrentWorkingDirectory()
 {
-    CHAR dest [MAX_PATH + 256];
-    dest[0] = 0;
-    GetCurrentDirectory ((DWORD) numElementsInArray (dest), dest);
-    return File (String (dest));
+    WCHAR wdest [MAX_PATH + 256];
+    CHAR adest [MAX_PATH + 256];
+    wdest[0] = 0;
+    GetCurrentDirectoryW ((DWORD) numElementsInArray (wdest), wdest);
+
+    if (WideCharToMultiByte (CP_UTF8, 0, wdest, -1, adest, numElementsInArray (adest), nullptr, nullptr))
+        return File (adest);
+
+    return File();
 }
 
 bool File::setAsCurrentWorkingDirectory() const
 {
-    return SetCurrentDirectory (getFullPathName().toUTF8()) != FALSE;
+    return SetCurrentDirectoryW (getFullPathName().toUTF16().c_str()) != FALSE;
 }
 
 bool File::isSymbolicLink() const
 {
-    return (GetFileAttributes (fullPath.toUTF8()) & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    return (GetFileAttributesW (fullPath.toUTF16().c_str()) & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
 }
 
 File File::getSpecialLocation (const SpecialLocationType type)
@@ -1131,10 +1147,15 @@ File File::getSpecialLocation (const SpecialLocationType type)
 
         case tempDirectory:
         {
-            CHAR dest [2048];
-            dest[0] = 0;
-            GetTempPath ((DWORD) numElementsInArray (dest), dest);
-            return File (String (dest));
+            WCHAR wdest [MAX_PATH + 256];
+            CHAR adest [MAX_PATH + 256];
+            wdest[0] = 0;
+            GetTempPathW ((DWORD) numElementsInArray (wdest), wdest);
+
+            if (WideCharToMultiByte (CP_UTF8, 0, wdest, -1, adest, numElementsInArray (adest), nullptr, nullptr))
+                return File (adest);
+
+            return File();
         }
 
         case currentExecutableFile:
@@ -1142,6 +1163,22 @@ File File::getSpecialLocation (const SpecialLocationType type)
 
         case hostApplicationPath:
             return WindowsFileHelpers::getModuleFileName (nullptr);
+
+        case winAppData:
+            csidlType = CSIDL_APPDATA;
+            break;
+
+        case winProgramFiles:
+            csidlType = CSIDL_PROGRAM_FILES;
+            break;
+
+        case winCommonProgramFiles:
+            csidlType = CSIDL_PROGRAM_FILES_COMMON;
+            break;
+
+        case winMyDocuments:
+            csidlType = CSIDL_MYDOCUMENTS;
+            break;
 
         default:
             wassertfalse; // unknown type?
@@ -1167,33 +1204,32 @@ public:
             FindClose (handle);
     }
 
-    bool next (String& filenameFound,
-               bool* const isDir, int64* const fileSize,
-               Time* const modTime, Time* const creationTime, bool* const isReadOnly)
+    bool next (String& filenameFound, bool* const isDir, int64* const fileSize, bool* const isReadOnly)
     {
         using namespace WindowsFileHelpers;
-        WIN32_FIND_DATA findData;
+        WIN32_FIND_DATAW findData;
 
         if (handle == INVALID_HANDLE_VALUE)
         {
-            handle = FindFirstFile (directoryWithWildCard.toUTF8(), &findData);
+            handle = FindFirstFileW (directoryWithWildCard.toUTF16().c_str(), &findData);
 
             if (handle == INVALID_HANDLE_VALUE)
                 return false;
         }
         else
         {
-            if (FindNextFile (handle, &findData) == 0)
+            if (FindNextFileW (handle, &findData) == 0)
                 return false;
         }
 
-        filenameFound = findData.cFileName;
+        CHAR apath [MAX_PATH + 256];
+
+        if (WideCharToMultiByte (CP_UTF8, 0, findData.cFileName, -1, apath, numElementsInArray (apath), nullptr, nullptr))
+            filenameFound = apath;
 
         if (isDir != nullptr)         *isDir        = ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
         if (isReadOnly != nullptr)    *isReadOnly   = ((findData.dwFileAttributes & FILE_ATTRIBUTE_READONLY) != 0);
         if (fileSize != nullptr)      *fileSize     = findData.nFileSizeLow + (((int64) findData.nFileSizeHigh) << 32);
-        if (modTime != nullptr)       *modTime      = Time (fileTimeToTime (&findData.ftLastWriteTime));
-        if (creationTime != nullptr)  *creationTime = Time (fileTimeToTime (&findData.ftCreationTime));
 
         return true;
     }
@@ -1202,13 +1238,13 @@ private:
     const String directoryWithWildCard;
     HANDLE handle;
 
-    CARLA_DECLARE_NON_COPY_CLASS (Pimpl)
+    CARLA_DECLARE_NON_COPYABLE (Pimpl)
 };
 #else
 //=====================================================================================================================
 namespace
 {
-   #ifdef CARLA_OS_LINUX
+   #ifdef __GLIBC__
     typedef struct stat64 water_statStruct;
     #define WATER_STAT    stat64
    #else
@@ -1222,24 +1258,15 @@ namespace
                  && WATER_STAT (fileName.toUTF8(), &info) == 0;
     }
 
-   #if 0 //def CARLA_OS_MAC
-    static int64 getCreationTime (const water_statStruct& s) noexcept     { return (int64) s.st_birthtime; }
-   #else
-    static int64 getCreationTime (const water_statStruct& s) noexcept     { return (int64) s.st_ctime; }
-   #endif
-
-    void updateStatInfoForFile (const String& path, bool* const isDir, int64* const fileSize,
-                                Time* const modTime, Time* const creationTime, bool* const isReadOnly)
+    void updateStatInfoForFile (const String& path, bool* const isDir, int64* const fileSize, bool* const isReadOnly)
     {
-        if (isDir != nullptr || fileSize != nullptr || modTime != nullptr || creationTime != nullptr)
+        if (isDir != nullptr || fileSize != nullptr)
         {
             water_statStruct info;
             const bool statOk = water_stat (path, info);
 
             if (isDir != nullptr)         *isDir        = statOk && ((info.st_mode & S_IFDIR) != 0);
             if (fileSize != nullptr)      *fileSize     = statOk ? (int64) info.st_size : 0;
-            if (modTime != nullptr)       *modTime      = Time (statOk ? (int64) info.st_mtime  * 1000 : 0);
-            if (creationTime != nullptr)  *creationTime = Time (statOk ? getCreationTime (info) * 1000 : 0);
         }
 
         if (isReadOnly != nullptr)
@@ -1251,9 +1278,6 @@ namespace
         return value == -1 ? getResultForErrno() : Result::ok();
     }
 }
-
-const water_uchar File::separator = '/';
-const String File::separatorString ("/");
 
 bool File::isDirectory() const
 {
@@ -1279,10 +1303,26 @@ bool File::hasWriteAccess() const
     if (exists())
         return access (fullPath.toUTF8(), W_OK) == 0;
 
-    if ((! isDirectory()) && fullPath.containsChar (separator))
+    if ((! isDirectory()) && fullPath.containsChar (CARLA_OS_SEP))
         return getParentDirectory().hasWriteAccess();
 
     return false;
+}
+
+void File::getFileTimesInternal (int64& modificationTime, int64& accessTime, int64& creationTime) const
+{
+    water_statStruct info;
+
+    if (water_stat (fullPath, info))
+    {
+        modificationTime = (int64) info.st_mtime * 1000;
+        accessTime       = (int64) info.st_atime * 1000;
+        creationTime     = (int64) info.st_ctime * 1000;
+    }
+    else
+    {
+        modificationTime = accessTime = creationTime = 0;
+    }
 }
 
 int64 File::getSize() const
@@ -1379,7 +1419,7 @@ File water_getExecutableFile()
 
                 for (int i=paths.size(); --i>=0;)
                 {
-                    const File filepath (File (paths[i]).getChildFile (filename));
+                    const File filepath (File (paths[i].toRawUTF8()).getChildFile (filename));
 
                     if (filepath.existsAsFile())
                         return filepath.getFullPathName();
@@ -1393,7 +1433,7 @@ File water_getExecutableFile()
     };
 
     static String filename (DLAddrReader::getFilename());
-    return filename;
+    return filename.toRawUTF8();
 }
 
 #ifdef CARLA_OS_MAC
@@ -1410,7 +1450,7 @@ bool File::isSymbolicLink() const
 File File::getLinkedTarget() const
 {
     if (NSString* dest = getFileLink (fullPath))
-        return getSiblingFile (nsStringToWater (dest));
+        return getSiblingFile ([dest UTF8String]);
 
     return *this;
 }
@@ -1442,14 +1482,14 @@ File File::getSpecialLocation (const SpecialLocationType type)
     switch (type)
     {
         case userHomeDirectory:
-          resultPath = nsStringToWater (NSHomeDirectory());
+          resultPath = [NSHomeDirectory() UTF8String];
           break;
 
         case tempDirectory:
         {
-            File tmp ("~/Library/Caches/" + water_getExecutableFile().getFileNameWithoutExtension());
+            File tmp (String("~/Library/Caches/" + water_getExecutableFile().getFileNameWithoutExtension()).toRawUTF8());
             tmp.createDirectory();
-            return File (tmp.getFullPathName());
+            return File (tmp.getFullPathName().toRawUTF8());
         }
 
         case currentExecutableFile:
@@ -1458,11 +1498,10 @@ File File::getSpecialLocation (const SpecialLocationType type)
         case hostApplicationPath:
         {
             unsigned int size = 8192;
-            HeapBlock<char> buffer;
-            buffer.calloc (size + 8);
-
-            _NSGetExecutablePath (buffer.getData(), &size);
-            return File (String::fromUTF8 (buffer, (int) size));
+            char* const buffer = new char[size + 8];
+            _NSGetExecutablePath (buffer, &size);
+            buffer[size] = 0;
+            return File (buffer);
         }
 
         default:
@@ -1471,7 +1510,7 @@ File File::getSpecialLocation (const SpecialLocationType type)
     }
 
     if (resultPath.isNotEmpty())
-        return File (resultPath.convertToPrecomposedUnicode());
+        return File (resultPath.convertToPrecomposedUnicode().toRawUTF8());
 
     return File();
 }
@@ -1494,9 +1533,7 @@ public:
         [enumerator release];
     }
 
-    bool next (String& filenameFound,
-               bool* const isDir, int64* const fileSize,
-               Time* const modTime, Time* const creationTime, bool* const isReadOnly)
+    bool next (String& filenameFound, bool* const isDir, int64* const fileSize,bool* const isReadOnly)
     {
         const AutoNSAutoreleasePool arpool;
 
@@ -1518,7 +1555,7 @@ public:
                 continue;
 
             const String fullPath (parentDir + filenameFound);
-            updateStatInfoForFile (fullPath, isDir, fileSize, modTime, creationTime, isReadOnly);
+            updateStatInfoForFile (fullPath, isDir, fileSize, isReadOnly);
 
             return true;
         }
@@ -1528,7 +1565,7 @@ private:
     String parentDir, wildCard;
     NSDirectoryEnumerator* enumerator;
 
-    CARLA_DECLARE_NON_COPY_CLASS (Pimpl)
+    CARLA_DECLARE_NON_COPYABLE (Pimpl)
 };
 #else
 static String getLinkedFile (const String& file)
@@ -1550,7 +1587,7 @@ File File::getLinkedTarget() const
     String f (getLinkedFile (getFullPathName()));
 
     if (f.isNotEmpty())
-        return getSiblingFile (f);
+        return getSiblingFile (f.toRawUTF8());
 
     return *this;
 }
@@ -1639,9 +1676,7 @@ public:
             closedir (dir);
     }
 
-    bool next (String& filenameFound,
-               bool* const isDir, int64* const fileSize,
-               Time* const modTime, Time* const creationTime, bool* const isReadOnly)
+    bool next (String& filenameFound, bool* const isDir, int64* const fileSize,bool* const isReadOnly)
     {
         if (dir != nullptr)
         {
@@ -1661,7 +1696,7 @@ public:
                 {
                     filenameFound = CharPointer_UTF8 (de->d_name);
 
-                    updateStatInfoForFile (parentDir + filenameFound, isDir, fileSize, modTime, creationTime, isReadOnly);
+                    updateStatInfoForFile (parentDir + filenameFound, isDir, fileSize, isReadOnly);
 
                     return true;
                 }
@@ -1675,7 +1710,7 @@ private:
     String parentDir, wildCard;
     DIR* dir;
 
-    CARLA_DECLARE_NON_COPY_CLASS (Pimpl)
+    CARLA_DECLARE_NON_COPYABLE (Pimpl)
 };
 #endif
 #endif
@@ -1687,11 +1722,9 @@ DirectoryIterator::NativeIterator::NativeIterator (const File& directory, const 
 
 DirectoryIterator::NativeIterator::~NativeIterator() {}
 
-bool DirectoryIterator::NativeIterator::next (String& filenameFound,
-                                              bool* isDir, int64* fileSize,
-                                              Time* modTime, Time* creationTime, bool* isReadOnly)
+bool DirectoryIterator::NativeIterator::next (String& filenameFound, bool* isDir, int64* fileSize,bool* isReadOnly)
 {
-    return pimpl->next (filenameFound, isDir, fileSize, modTime, creationTime, isReadOnly);
+    return pimpl->next (filenameFound, isDir, fileSize, isReadOnly);
 }
 
 }
